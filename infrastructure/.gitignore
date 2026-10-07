@@ -182,7 +182,7 @@ terraform.rc
 *.plan
 *.tfvars
 *.tfvars.json
-codex-gallery.json
+*-gallery.json
 .preview/
 .validation/
 graphify-out/

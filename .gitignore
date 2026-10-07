@@ -188,7 +188,7 @@ node_modules/
 *.plan
 *.tfvars
 *.tfvars.json
-codex-gallery.json
+*-gallery.json
 .preview/
 .validation/
 graphify-out/
