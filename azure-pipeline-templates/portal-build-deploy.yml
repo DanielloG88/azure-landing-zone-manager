@@ -1,0 +1,250 @@
+parameters:
+  - name: environmentName
+    type: string
+  - name: environmentDisplayName
+    type: string
+  - name: serviceConnection
+    type: string
+  - name: subscriptionId
+    type: string
+  - name: resourceGroupName
+    type: string
+  - name: containerAppName
+    type: string
+  - name: acrName
+    type: string
+  - name: imageRepository
+    type: string
+  - name: tagPrefix
+    type: string
+  - name: versionFile
+    type: string
+  - name: imageTag
+    type: string
+  - name: targetBranch
+    type: string
+  - name: subscriptionsPath
+    type: string
+
+stages:
+  - stage: build_portal
+    displayName: Build Subscription Portal ${{ parameters.environmentDisplayName }}
+    jobs:
+      - job: build_portal_image
+        displayName: Test, build and push immutable image
+        pool:
+          vmImage: ubuntu-22.04
+        steps:
+          - checkout: self
+
+          - task: UseNode@1
+            displayName: Use Node.js 20
+            inputs:
+              version: "20.x"
+
+          - bash: |
+              set -euo pipefail
+              npm ci
+              npm test
+            displayName: Test Subscription Portal
+            workingDirectory: $(Build.SourcesDirectory)/subscription-portal
+
+          - bash: |
+              set -euo pipefail
+
+              TAG_INPUT="${TAG_INPUT:-}"
+              TAG_PREFIX="${TAG_PREFIX:-}"
+              VERSION_FILE="${VERSION_FILE:-}"
+              BUILD_ID="${BUILD_ID:-}"
+
+              VERSION_FILE_PATH="${BUILD_SOURCESDIRECTORY}/${VERSION_FILE}"
+              if [ -z "$TAG_INPUT" ] || [ "$TAG_INPUT" = "auto" ]; then
+                if [ ! -f "$VERSION_FILE_PATH" ]; then
+                  echo "VERSION file not found: $VERSION_FILE_PATH"
+                  exit 1
+                fi
+                RAW_TAG=$(tr -d '\r\n' < "$VERSION_FILE_PATH")
+                echo "Tag derived from VERSION file: $RAW_TAG"
+              else
+                RAW_TAG="$TAG_INPUT"
+                echo "Tag supplied in run dialog: $RAW_TAG"
+              fi
+
+              if [[ "$RAW_TAG" == "${TAG_PREFIX}"* ]]; then
+                FINAL_TAG="$RAW_TAG"
+              else
+                FINAL_TAG="${TAG_PREFIX}${RAW_TAG}"
+              fi
+
+              if [[ "$FINAL_TAG" != *"-${BUILD_ID}" ]]; then
+                FINAL_TAG="${FINAL_TAG}-${BUILD_ID}"
+              fi
+
+              if ! [[ "$FINAL_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+                echo "Resolved image tag is invalid: $FINAL_TAG"
+                exit 1
+              fi
+
+              echo "Resolved immutable tag: $FINAL_TAG"
+              echo "##vso[task.setvariable variable=resolvedTag]$FINAL_TAG"
+              echo "##vso[task.setvariable variable=resolvedTagOutput;isOutput=true]$FINAL_TAG"
+            name: resolve_image_tag
+            displayName: Resolve immutable image tag
+            env:
+              TAG_INPUT: ${{ parameters.imageTag }}
+              TAG_PREFIX: ${{ parameters.tagPrefix }}
+              VERSION_FILE: ${{ parameters.versionFile }}
+              BUILD_ID: $(Build.BuildId)
+
+          - task: AzureCLI@2
+            displayName: Build and push image
+            inputs:
+              azureSubscription: ${{ parameters.serviceConnection }}
+              scriptType: pscore
+              scriptLocation: inlineScript
+              inlineScript: |
+                $ErrorActionPreference = "Stop"
+                az account set --subscription "$env:TARGET_SUBSCRIPTION_ID"
+                if ($LASTEXITCODE -ne 0) {
+                  throw "Could not select target Azure subscription."
+                }
+
+                $contextPath = Join-Path $env:BUILD_SOURCESDIRECTORY "subscription-portal"
+                $loginServer = "$($env:ACR_NAME).azurecr.io"
+                $image = "$loginServer/$($env:IMAGE_REPOSITORY):$($env:RESOLVED_TAG)"
+
+                az acr login --name "$env:ACR_NAME" --only-show-errors
+                if ($LASTEXITCODE -ne 0) {
+                  throw "ACR login failed."
+                }
+
+                docker build --file (Join-Path $contextPath "Dockerfile") --tag $image $contextPath
+                if ($LASTEXITCODE -ne 0) {
+                  throw "Container image build failed."
+                }
+
+                docker push $image
+                if ($LASTEXITCODE -ne 0) {
+                  throw "Container image push failed."
+                }
+
+                $digest = az acr repository show `
+                  --name "$env:ACR_NAME" `
+                  --image "$($env:IMAGE_REPOSITORY):$($env:RESOLVED_TAG)" `
+                  --query digest `
+                  --output tsv
+                if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($digest)) {
+                  throw "The pushed image could not be resolved in ACR."
+                }
+
+                Write-Host "Pushed immutable image: $image@$digest"
+            env:
+              TARGET_SUBSCRIPTION_ID: ${{ parameters.subscriptionId }}
+              ACR_NAME: ${{ parameters.acrName }}
+              IMAGE_REPOSITORY: ${{ parameters.imageRepository }}
+              RESOLVED_TAG: $(resolvedTag)
+
+  - stage: deploy_portal
+    displayName: Deploy Subscription Portal ${{ parameters.environmentDisplayName }}
+    dependsOn: build_portal
+    condition: succeeded()
+    variables:
+      resolvedTag: $[stageDependencies.build_portal.build_portal_image.outputs['resolve_image_tag.resolvedTagOutput']]
+    jobs:
+      - deployment: deploy_portal_app
+        displayName: Deploy immutable image to Container App
+        environment: ${{ parameters.environmentName }}
+        pool:
+          vmImage: ubuntu-22.04
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: none
+
+                - task: AzureCLI@2
+                  displayName: Update and verify Container App
+                  inputs:
+                    azureSubscription: ${{ parameters.serviceConnection }}
+                    scriptType: pscore
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      $ErrorActionPreference = "Stop"
+                      az account set --subscription "$env:TARGET_SUBSCRIPTION_ID"
+                      if ($LASTEXITCODE -ne 0) {
+                        throw "Could not select target Azure subscription."
+                      }
+
+                      az extension add --name containerapp --upgrade --only-show-errors
+                      if ($LASTEXITCODE -ne 0) {
+                        throw "Could not install or update the Azure Container Apps CLI extension."
+                      }
+
+                      $image = "$($env:ACR_NAME).azurecr.io/$($env:IMAGE_REPOSITORY):$($env:RESOLVED_TAG)"
+                      az containerapp update `
+                        --name "$env:CONTAINER_APP_NAME" `
+                        --resource-group "$env:RESOURCE_GROUP_NAME" `
+                        --image "$image" `
+                        --set-env-vars `
+                          "AZDO_TARGET_BRANCH=$env:TARGET_BRANCH" `
+                          "AZDO_SUBSCRIPTIONS_PATH=$env:SUBSCRIPTIONS_PATH" `
+                        --only-show-errors `
+                        --output none
+                      if ($LASTEXITCODE -ne 0) {
+                        throw "Container App update failed."
+                      }
+
+                      $ready = $false
+                      for ($attempt = 1; $attempt -le 30; $attempt++) {
+                        $app = az containerapp show `
+                          --name "$env:CONTAINER_APP_NAME" `
+                          --resource-group "$env:RESOURCE_GROUP_NAME" `
+                          --output json | ConvertFrom-Json
+                        if ($LASTEXITCODE -ne 0) {
+                          throw "Could not read Container App state."
+                        }
+
+                        $actualImage = $app.properties.template.containers[0].image
+                        $latestRevision = $app.properties.latestRevisionName
+                        $latestReadyRevision = $app.properties.latestReadyRevisionName
+                        if ($actualImage -eq $image -and
+                            $latestRevision -and
+                            $latestRevision -eq $latestReadyRevision) {
+                          $ready = $true
+                          break
+                        }
+
+                        Write-Host "Waiting for the new revision to become ready ($attempt/30)."
+                        Start-Sleep -Seconds 10
+                      }
+
+                      if (-not $ready) {
+                        throw "The new Container App revision did not become ready within five minutes."
+                      }
+
+                      $envValues = @{}
+                      foreach ($item in $app.properties.template.containers[0].env) {
+                        if ($null -ne $item.value) {
+                          $envValues[$item.name] = $item.value
+                        }
+                      }
+
+                      if ($envValues["AZDO_TARGET_BRANCH"] -ne $env:TARGET_BRANCH) {
+                        throw "Container App target branch verification failed."
+                      }
+                      if ($envValues["AZDO_SUBSCRIPTIONS_PATH"] -ne $env:SUBSCRIPTIONS_PATH) {
+                        throw "Container App subscriptions path verification failed."
+                      }
+
+                      Write-Host "Deployed image: $actualImage"
+                      Write-Host "Ready revision: $latestReadyRevision"
+                      Write-Host "Portal data target: $($env:TARGET_BRANCH)$($env:SUBSCRIPTIONS_PATH)"
+                  env:
+                    TARGET_SUBSCRIPTION_ID: ${{ parameters.subscriptionId }}
+                    RESOURCE_GROUP_NAME: ${{ parameters.resourceGroupName }}
+                    CONTAINER_APP_NAME: ${{ parameters.containerAppName }}
+                    ACR_NAME: ${{ parameters.acrName }}
+                    IMAGE_REPOSITORY: ${{ parameters.imageRepository }}
+                    RESOLVED_TAG: $(resolvedTag)
+                    TARGET_BRANCH: ${{ parameters.targetBranch }}
+                    SUBSCRIPTIONS_PATH: ${{ parameters.subscriptionsPath }}

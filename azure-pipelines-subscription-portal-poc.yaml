@@ -1,0 +1,16 @@
+# Retired combined POC Portal/Terraform pipeline.
+# POC portal application delivery is owned by azure-pipelines-container.yaml.
+# POC must never run the production subscription lifecycle Terraform.
+trigger: none
+
+pr: none
+
+pool:
+  vmImage: ubuntu-22.04
+
+steps:
+  - bash: |
+      echo "This combined POC pipeline is retired."
+      echo "Use Portal Build & Deploy from refs/heads/poc."
+      exit 1
+    displayName: Reject retired pipeline

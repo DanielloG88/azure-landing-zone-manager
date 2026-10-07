@@ -1,0 +1,56 @@
+parameters:
+  - name: environmentName
+    type: string
+  - name: environmentDisplayName
+    type: string
+  - name: serviceConnection
+    type: string
+  - name: providerSubscriptionId
+    type: string
+    default: ""
+  - name: additionalPlanCommandOptions
+    type: string
+    default: ""
+  - name: additionalApplyCommandOptions
+    type: string
+    default: ""
+
+jobs:
+  - job: ci_portal_${{ parameters.environmentName }}
+    displayName: Build ${{ parameters.environmentDisplayName }} Subscription Portal Infrastructure
+    variables:
+      - name: terraformPlanName
+        value: terraform.${{ parameters.environmentName }}.tfplan
+      - name: terraformWorkingDirectory
+        value: $(System.DefaultWorkingDirectory)/infrastructure
+      - name: terraformModuleDir
+        value: subscription-portal
+    steps:
+      - template: portal-terraform.yml
+        parameters:
+          serviceConnection: ${{ parameters.serviceConnection }}
+          step: plan
+          # portal-terraform.yml loads backend settings from Azure DevOps secure files.
+          environmentName: ${{ parameters.environmentName }}
+          providerSubscriptionId: ${{ parameters.providerSubscriptionId }}
+          planName: $(terraformPlanName)
+          workingDirectory: $(terraformWorkingDirectory)
+          terraformModuleDir: $(terraformModuleDir)
+          additionalPlanCommandOptions: ${{ parameters.additionalPlanCommandOptions }}
+          additionalApplyCommandOptions: ${{ parameters.additionalApplyCommandOptions }}
+
+      - task: DeleteFiles@1
+        displayName: Prepare Publishing
+        inputs:
+          sourceFolder: $(terraformWorkingDirectory)/$(terraformModuleDir)
+          contents: |
+            .terraform
+            **/*.tfvars
+            **/*.tfbackend
+            ${{ parameters.environmentName }}
+
+      - task: PublishPipelineArtifact@1
+        displayName: Publish Terraform
+        inputs:
+          targetPath: $(terraformWorkingDirectory)
+          artifact: subscription-portal-${{ parameters.environmentName }}

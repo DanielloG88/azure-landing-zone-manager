@@ -1,0 +1,175 @@
+parameters:
+  - name: terraformVersion
+    type: string
+    default: "1.11.4"
+  - name: step
+    type: string
+    default: plan
+    values:
+      - plan
+      - apply
+  - name: environmentName
+    type: string
+  - name: serviceConnection
+    type: string
+  - name: workingDirectory
+    type: string
+  - name: planName
+    type: string
+  - name: additionalPlanCommandOptions
+    type: string
+    default: ""
+
+steps:
+  - task: TerraformInstaller@1
+    displayName: Install Terraform
+    inputs:
+      terraformVersion: ${{ parameters.terraformVersion }}
+
+  - task: DownloadSecureFile@1
+    name: backendConfiguration
+    displayName: Download backend configuration
+    inputs:
+      secureFile: landing-zone-${{ parameters.environmentName }}.azurerm.tfbackend
+
+  - task: PowerShell@2
+    displayName: Prepare backend configuration
+    inputs:
+      targetType: inline
+      pwsh: true
+      workingDirectory: ${{ parameters.workingDirectory }}
+      script: |
+        $ErrorActionPreference = 'Stop'
+        Copy-Item '$(backendConfiguration.secureFilePath)' '${{ parameters.environmentName }}.azurerm.tfbackend' -Force
+
+  - ${{ if eq(parameters['step'], 'plan') }}:
+      - task: DownloadSecureFile@1
+        name: terraformConfiguration
+        displayName: Download Terraform inputs
+        inputs:
+          secureFile: landing-zone-${{ parameters.environmentName }}.tfvars
+      - task: PowerShell@2
+        displayName: Prepare Terraform inputs
+        inputs:
+          targetType: inline
+          pwsh: true
+          workingDirectory: ${{ parameters.workingDirectory }}
+          script: |
+            $ErrorActionPreference = 'Stop'
+            Copy-Item '$(terraformConfiguration.secureFilePath)' 'deployment.auto.tfvars' -Force
+
+  - task: PowerShell@2
+    displayName: Set Terraform Variables
+    inputs:
+      targetType: inline
+      script: |
+        Get-Content "${{ parameters.environmentName }}.azurerm.tfbackend" | ForEach-Object {
+            $name, $value = $_.Trim() -split '=', 2
+            if ($name -and $name[0] -ne '#') {
+                Write-Host "##vso[task.setvariable variable=$($name.Trim())]$($value.Trim().Trim('"'))"
+            }
+        }
+      failOnStderr: true
+      pwsh: true
+      workingDirectory: ${{ parameters.workingDirectory }}
+
+  - task: TerraformTask@5
+    displayName: Initialize Terraform
+    inputs:
+      provider: azurerm
+      command: init
+      commandOptions: -reconfigure
+      workingDirectory: ${{ parameters.workingDirectory }}
+      backendServiceArm: ${{ parameters.serviceConnection }}
+      backendAzureRmUseEntraIdForAuthentication: true
+      backendAzureRmResourceGroupName: $(resource_group_name)
+      backendAzureRmStorageAccountName: $(storage_account_name)
+      backendAzureRmContainerName: $(container_name)
+      backendAzureRmKey: $(key)
+      backendAzureRmOverrideSubscriptionID: $(subscription_id)
+
+  - ${{ if eq(parameters['step'], 'plan') }}:
+      - task: TerraformTask@5
+        displayName: Format Terraform
+        continueOnError: true
+        inputs:
+          provider: azurerm
+          command: custom
+          customCommand: fmt
+          commandOptions: "-check -diff -recursive"
+          workingDirectory: ${{ parameters.workingDirectory }}
+          environmentServiceNameAzureRM: ${{ parameters.serviceConnection }}
+          environmentAzureRmOverrideSubscriptionID: $(subscription_id)
+
+      - task: TerraformTask@5
+        displayName: Validate Terraform
+        inputs:
+          provider: azurerm
+          command: validate
+          workingDirectory: ${{ parameters.workingDirectory }}
+          environmentServiceNameAzureRM: ${{ parameters.serviceConnection }}
+          environmentAzureRmOverrideSubscriptionID: $(subscription_id)
+
+      - task: Bash@3
+        displayName: Check with TFLint
+        continueOnError: true
+        inputs:
+          targetType: inline
+          workingDirectory: ${{ parameters.workingDirectory }}
+          failOnStderr: true
+          script: |
+            curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+            tflint --init
+            tflint
+        env:
+          TFLINT_VERSION: v0.41.0
+
+      - task: tfsec@1
+        displayName: Scan with tfsec
+        inputs:
+          version: v1.28.0
+          dir: ${{ parameters.workingDirectory }}
+          args: --soft-fail
+
+      - task: TerraformTask@5
+        name: terraformPlan
+        displayName: Plan Terraform
+        inputs:
+          provider: azurerm
+          command: plan
+          workingDirectory: ${{ parameters.workingDirectory }}
+          environmentServiceNameAzureRM: ${{ parameters.serviceConnection }}
+          environmentAzureRmOverrideSubscriptionID: $(subscription_id)
+          commandOptions: >
+            -var tfstate_resource_group=$(resource_group_name)
+            -var tfstate_storage_account=$(storage_account_name)
+            -var environment=${{ parameters.environmentName }}
+            -out ${{ parameters.planName }}
+            ${{ parameters.additionalPlanCommandOptions }}
+          publishPlanResults: ${{ parameters.environmentName }}
+
+  - ${{ elseif eq(parameters['step'], 'apply') }}:
+      - task: TerraformTask@5
+        displayName: Apply Terraform
+        inputs:
+          provider: azurerm
+          command: apply
+          workingDirectory: ${{ parameters.workingDirectory }}
+          environmentServiceNameAzureRM: ${{ parameters.serviceConnection }}
+          environmentAzureRmOverrideSubscriptionID: $(subscription_id)
+          commandOptions: -parallelism=1 ${{ parameters.planName }}
+
+      - task: TerraformTask@5
+        displayName: Output Terraform
+        inputs:
+          provider: azurerm
+          command: output
+          workingDirectory: ${{ parameters.workingDirectory }}
+          environmentServiceNameAzureRM: ${{ parameters.serviceConnection }}
+          environmentAzureRmOverrideSubscriptionID: $(subscription_id)
+
+      - task: PublishPipelineArtifact@1
+        displayName: Publish backend configs
+        inputs:
+          targetPath: ${{ parameters.workingDirectory }}/terraform_modules
+          artifact: backend-configs-${{ parameters.environmentName }}

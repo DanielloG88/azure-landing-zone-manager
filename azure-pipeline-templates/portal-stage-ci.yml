@@ -1,0 +1,17 @@
+parameters:
+  - name: serviceConnectionprod
+    type: string
+  - name: additionalPlanCommandOptions
+    type: string
+    default: ""
+
+stages:
+  - stage: ci_portal
+    displayName: "Continuous Integration (Subscription Portal)"
+    jobs:
+        - template: portal-ci-infra.yml
+          parameters:
+            serviceConnection: ${{ parameters.serviceConnectionprod }}
+            environmentName: prod
+            environmentDisplayName: prod
+            additionalPlanCommandOptions: ${{ parameters.additionalPlanCommandOptions }}

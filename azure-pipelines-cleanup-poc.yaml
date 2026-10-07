@@ -1,0 +1,42 @@
+trigger: none
+pr: none
+
+name: cleanup-poc-$(Date:yyyyMMdd)$(Rev:.r)
+
+schedules:
+  - cron: "0 1 * * 1-5"
+    displayName: "Weekday nightly cleanup - POC"
+    branches:
+      include:
+        - poc
+    always: true
+
+parameters:
+  - name: forceCleanup
+    displayName: "Force cleanup (ignore retention window)"
+    type: boolean
+    default: false
+
+pool:
+  vmImage: ubuntu-22.04
+
+steps:
+  - checkout: self
+    persistCredentials: true
+
+  - task: PowerShell@2
+    displayName: Cleanup destroyed subscriptions
+    inputs:
+      targetType: inline
+      pwsh: true
+      workingDirectory: $(System.DefaultWorkingDirectory)/subscription-portal
+      script: |
+        if ('${{ parameters.forceCleanup }}' -eq 'true') {
+          pwsh -NoProfile -File scripts/cleanup-subscriptions.ps1 --force
+        } else {
+          pwsh -NoProfile -File scripts/cleanup-subscriptions.ps1
+        }
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+      AZDO_TARGET_BRANCH: poc
+      AZDO_SUBSCRIPTIONS_PATH: /portal-data/poc/subscriptions.csv

@@ -1,0 +1,270 @@
+parameters:
+  - name: terraformVersion
+    type: string
+    default: "1.11.4"
+  - name: step
+    type: string
+    default: plan
+    values:
+      - plan
+      - apply
+  - name: environmentName
+    type: string
+  - name: serviceConnection
+    type: string
+  - name: workingDirectory
+    type: string
+  - name: terraformModuleDir
+    type: string
+    default: subscription-portal
+  - name: providerSubscriptionId
+    type: string
+    default: ""
+  - name: planName
+    type: string
+  - name: versionFile
+    type: string
+    default: subscription-portal/VERSION
+  - name: tagPrefix
+    type: string
+    default: azportal-
+  - name: additionalPlanCommandOptions
+    type: string
+    default: ""
+  - name: additionalApplyCommandOptions
+    type: string
+    default: ""
+
+steps:
+  - task: TerraformInstaller@1
+    displayName: Install Terraform
+    inputs:
+      terraformVersion: ${{ parameters.terraformVersion }}
+
+  - task: DownloadSecureFile@1
+    name: backendConfiguration
+    displayName: Download backend configuration
+    inputs:
+      secureFile: portal-${{ parameters.environmentName }}.azurerm.tfbackend
+
+  - task: PowerShell@2
+    displayName: Prepare backend configuration
+    inputs:
+      targetType: inline
+      pwsh: true
+      workingDirectory: ${{ parameters.workingDirectory }}/${{ parameters.terraformModuleDir }}
+      script: |
+        $ErrorActionPreference = 'Stop'
+        Copy-Item '$(backendConfiguration.secureFilePath)' '${{ parameters.environmentName }}.azurerm.tfbackend' -Force
+
+  - ${{ if eq(parameters['step'], 'plan') }}:
+      - task: DownloadSecureFile@1
+        name: terraformConfiguration
+        displayName: Download Terraform inputs
+        inputs:
+          secureFile: portal-${{ parameters.environmentName }}.tfvars
+      - task: PowerShell@2
+        displayName: Prepare Terraform inputs
+        inputs:
+          targetType: inline
+          pwsh: true
+          workingDirectory: ${{ parameters.workingDirectory }}/${{ parameters.terraformModuleDir }}
+          script: |
+            $ErrorActionPreference = 'Stop'
+            Copy-Item '$(terraformConfiguration.secureFilePath)' 'deployment.auto.tfvars' -Force
+
+  - task: PowerShell@2
+    displayName: Set Terraform Variables
+    inputs:
+      targetType: inline
+      script: |
+        $backendValues = @{}
+
+        Get-Content "${{ parameters.environmentName }}.azurerm.tfbackend" | ForEach-Object {
+            $name, $value = $_.Trim() -split '=', 2
+            if ($name -and $name[0] -ne '#') {
+                $trimmedName = $name.Trim()
+                $trimmedValue = $value.Trim().Trim('"')
+                $backendValues[$trimmedName] = $trimmedValue
+                Write-Host "##vso[task.setvariable variable=backend_$trimmedName]$trimmedValue"
+            }
+        }
+
+        $providerSubscriptionId = "${{ parameters.providerSubscriptionId }}".Trim()
+        if (-not $providerSubscriptionId) {
+            $providerSubscriptionId = $backendValues["subscription_id"]
+        }
+
+        if (-not $providerSubscriptionId) {
+            throw "Unable to resolve provider subscription ID."
+        }
+
+        Write-Host "##vso[task.setvariable variable=provider_subscription_id]$providerSubscriptionId"
+      failOnStderr: true
+      pwsh: true
+      workingDirectory: ${{ parameters.workingDirectory }}/${{ parameters.terraformModuleDir }}
+
+  - task: TerraformTask@5
+    displayName: Initialize Terraform
+    inputs:
+      provider: azurerm
+      command: init
+      commandOptions: -reconfigure
+      workingDirectory: ${{ parameters.workingDirectory }}/${{ parameters.terraformModuleDir }}
+      backendServiceArm: ${{ parameters.serviceConnection }}
+      backendAzureRmUseEntraIdForAuthentication: true
+      backendAzureRmResourceGroupName: $(backend_resource_group_name)
+      backendAzureRmStorageAccountName: $(backend_storage_account_name)
+      backendAzureRmContainerName: $(backend_container_name)
+      backendAzureRmKey: $(backend_key)
+      backendAzureRmOverrideSubscriptionID: $(backend_subscription_id)
+
+  - bash: |
+      set -euo pipefail
+
+      VERSION_FILE="${VERSION_FILE:-}"
+      TAG_PREFIX="${TAG_PREFIX:-}"
+      WORKING_DIR="${WORKING_DIR:-}"
+      MODULE_DIR="${MODULE_DIR:-}"
+      BUILD_ID="${BUILD_ID:-}"
+
+      TAG_FILE=""
+      if [ -n "$WORKING_DIR" ] && [ -n "$MODULE_DIR" ]; then
+        TAG_FILE="${WORKING_DIR}/${MODULE_DIR}/resolved-image-tag.txt"
+      fi
+
+      if [ -n "$TAG_FILE" ] && [ -f "$TAG_FILE" ]; then
+        RAW_TAG=$(tr -d '\r\n' < "$TAG_FILE")
+        if [ -n "$RAW_TAG" ]; then
+          echo "Using resolved tag from file: $RAW_TAG"
+        fi
+      fi
+
+      if [ -z "${RAW_TAG:-}" ]; then
+        VERSION_FILE_PATH="$VERSION_FILE"
+        if [ ! -f "$VERSION_FILE_PATH" ]; then
+          VERSION_FILE_PATH="${BUILD_SOURCESDIRECTORY}/${VERSION_FILE}"
+        fi
+
+        if [ -f "$VERSION_FILE_PATH" ]; then
+          RAW_TAG=$(tr -d '\r\n' < "$VERSION_FILE_PATH")
+          echo "Tag derived from VERSION file: $RAW_TAG"
+        else
+          echo "VERSION file not found - using 'latest'"
+          RAW_TAG=latest
+        fi
+      fi
+
+      if [ -n "$TAG_PREFIX" ]; then
+        if [[ "$RAW_TAG" == "${TAG_PREFIX}"* ]]; then
+          FINAL_TAG="$RAW_TAG"
+        else
+          FINAL_TAG="${TAG_PREFIX}${RAW_TAG}"
+        fi
+      else
+        FINAL_TAG="$RAW_TAG"
+      fi
+
+      if [ -n "$BUILD_ID" ] && [[ "$FINAL_TAG" != *"-${BUILD_ID}" ]]; then
+        FINAL_TAG="${FINAL_TAG}-${BUILD_ID}"
+      fi
+
+      if [ -z "$FINAL_TAG" ]; then
+        echo "Resolved tag is empty."
+        exit 1
+      fi
+
+      echo "Resolved tag: $FINAL_TAG"
+      echo "##vso[task.setvariable variable=resolvedTag]$FINAL_TAG"
+
+      if [ -n "$TAG_FILE" ]; then
+        mkdir -p "$(dirname "$TAG_FILE")"
+        echo "$FINAL_TAG" > "$TAG_FILE"
+      fi
+    displayName: Resolve image tag
+    env:
+      VERSION_FILE: ${{ parameters.versionFile }}
+      TAG_PREFIX: ${{ parameters.tagPrefix }}
+      WORKING_DIR: ${{ parameters.workingDirectory }}
+      MODULE_DIR: ${{ parameters.terraformModuleDir }}
+      BUILD_ID: $(Build.BuildId)
+
+  - ${{ if eq(parameters['step'], 'plan') }}:
+      - task: TerraformTask@5
+        displayName: Format Terraform
+        continueOnError: true
+        inputs:
+          provider: azurerm
+          command: custom
+          customCommand: fmt
+          commandOptions: "-check -diff -recursive"
+          workingDirectory: ${{ parameters.workingDirectory }}/${{ parameters.terraformModuleDir }}
+          environmentServiceNameAzureRM: ${{ parameters.serviceConnection }}
+          environmentAzureRmOverrideSubscriptionID: $(provider_subscription_id)
+
+      - task: TerraformTask@5
+        displayName: Validate Terraform
+        inputs:
+          provider: azurerm
+          command: validate
+          workingDirectory: ${{ parameters.workingDirectory }}/${{ parameters.terraformModuleDir }}
+          environmentServiceNameAzureRM: ${{ parameters.serviceConnection }}
+          environmentAzureRmOverrideSubscriptionID: $(provider_subscription_id)
+
+      - task: Bash@3
+        displayName: Check with TFLint
+        continueOnError: true
+        inputs:
+          targetType: inline
+          workingDirectory: ${{ parameters.workingDirectory }}/${{ parameters.terraformModuleDir }}
+          failOnStderr: true
+          script: |
+            curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+            tflint --init
+            tflint
+        env:
+          TFLINT_VERSION: v0.41.0
+
+      - task: tfsec@1
+        displayName: Scan with tfsec
+        inputs:
+          version: v1.28.0
+          dir: ${{ parameters.workingDirectory }}/${{ parameters.terraformModuleDir }}
+          args: --soft-fail
+
+      - task: TerraformTask@5
+        displayName: Plan Terraform
+        inputs:
+          provider: azurerm
+          command: plan
+          workingDirectory: ${{ parameters.workingDirectory }}/${{ parameters.terraformModuleDir }}
+          environmentServiceNameAzureRM: ${{ parameters.serviceConnection }}
+          environmentAzureRmOverrideSubscriptionID: $(provider_subscription_id)
+          commandOptions: >
+            -var environment=${{ parameters.environmentName }}
+            ${{ parameters.additionalPlanCommandOptions }}
+            -out ${{ parameters.planName }}
+        env:
+          TF_VAR_image_tag: $(resolvedTag)
+
+  - ${{ elseif eq(parameters['step'], 'apply') }}:
+      - task: TerraformTask@5
+        displayName: Apply Terraform
+        inputs:
+          provider: azurerm
+          command: apply
+          workingDirectory: ${{ parameters.workingDirectory }}/${{ parameters.terraformModuleDir }}
+          environmentServiceNameAzureRM: ${{ parameters.serviceConnection }}
+          environmentAzureRmOverrideSubscriptionID: $(provider_subscription_id)
+          commandOptions: -parallelism=1 ${{ parameters.additionalApplyCommandOptions }} ${{ parameters.planName }}
+        env:
+          TF_VAR_image_tag: $(resolvedTag)
+
+      - task: TerraformTask@5
+        displayName: Output Terraform
+        inputs:
+          provider: azurerm
+          command: output
+          workingDirectory: ${{ parameters.workingDirectory }}/${{ parameters.terraformModuleDir }}
+          environmentServiceNameAzureRM: ${{ parameters.serviceConnection }}
+          environmentAzureRmOverrideSubscriptionID: $(provider_subscription_id)

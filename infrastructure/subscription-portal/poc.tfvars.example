@@ -1,0 +1,49 @@
+subscription_id                = "<subscription-id>"
+location                       = "westeurope"
+resource_group_name            = "rg-alzportal-poc"
+container_app_environment_name = "cae-alzportal-poc"
+container_app_environment_workload_profiles = [
+  {
+    name                  = "Consumption"
+    workload_profile_type = "Consumption"
+    minimum_count         = 0
+    maximum_count         = 0
+  }
+]
+container_app_name                  = "alz-portal-poc"
+container_name                      = "alz-portal-poc"
+container_app_workload_profile_name = "Consumption"
+container_registry_name             = "youracrpoc"
+user_assigned_identity_name         = "id-alzportal-poc"
+key_vault_name                      = "kv-alzportal-poc-01"
+log_analytics_workspace_name        = "law-alzportal-poc"
+create_container_app                = false
+container_cpu                       = 0.5
+container_memory                    = "1Gi"
+max_replicas                        = 10
+
+azdo = {
+  org_url       = "https://dev.azure.com/your-organization/"
+  project       = "azure-landing-zone-manager"
+  repo_id       = "azure-landing-zone-manager"
+  target_branch = "poc"
+  enabled       = true
+}
+
+portal_auth = {
+  bearer_enabled   = true
+  aad_client_id    = "<client-id>"
+  aad_tenant_id    = "<tenant-id>"
+  aad_scopes       = ["api://<client-id>/user_impersonation"]
+  admin_groups     = ["<admin-group-id>"]
+  requester_groups = ["<requester-group-id>"]
+}
+
+container_app_auth_client_secret_secret_id = "https://<key-vault-name>.vault.azure.net/secrets/<auth-secret-name>"
+
+portal_env_overrides = {
+  # Keep only the safety boundary that separates the POC data from Terraform.
+  # All UI options and defaults come from the same application defaults as PROD.
+  SUBSCRIPTIONS_CSV_PATH  = "../portal-data/poc/subscriptions.csv"
+  AZDO_SUBSCRIPTIONS_PATH = "/portal-data/poc/subscriptions.csv"
+}

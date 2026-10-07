@@ -1,0 +1,43 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portal:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: subscription-portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: subscription-portal/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  terraform:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        directory: [infrastructure, infrastructure/subscription-portal, infrastructure/tfstate]
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.11.4'
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate -no-color

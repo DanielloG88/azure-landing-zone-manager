@@ -1,0 +1,45 @@
+parameters:
+  - name: environmentName
+    type: string
+  - name: environmentDisplayName
+    type: string
+  - name: serviceConnection
+    type: string
+  - name: additionalPlanCommandOptions
+    type: string
+    default: ""
+
+jobs:
+  - job: ci_infra_${{ parameters.environmentName }}
+    displayName: Build ${{ parameters.environmentDisplayName }} Infrastructure
+    variables:
+      - name: terraformPlanName
+        value: terraform.${{ parameters.environmentName }}.tfplan
+      - name: terraformWorkingDirectory
+        value: $(System.DefaultWorkingDirectory)/infrastructure
+    steps:
+      - template: terraform.yml
+        parameters:
+          serviceConnection: ${{ parameters.serviceConnection }}
+          step: plan
+          # terraform.yml now loads backend settings from Azure DevOps secure files, so no backend parameters needed.
+          environmentName: ${{ parameters.environmentName }}
+          planName: $(terraformPlanName)
+          workingDirectory: $(terraformWorkingDirectory)
+          additionalPlanCommandOptions: ${{ parameters.additionalPlanCommandOptions }}
+
+      - task: DeleteFiles@1
+        displayName: Prepare Publishing
+        inputs:
+          sourceFolder: $(terraformWorkingDirectory)
+          contents: |
+            .terraform
+            **/*.tfvars
+            **/*.tfbackend
+            ${{ parameters.environmentName }}
+
+      - task: PublishPipelineArtifact@1
+        displayName: Publish Terraform
+        inputs:
+          targetPath: $(terraformWorkingDirectory)
+          artifact: infrastructure-${{ parameters.environmentName }}

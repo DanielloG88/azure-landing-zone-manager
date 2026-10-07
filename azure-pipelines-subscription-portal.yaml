@@ -1,0 +1,16 @@
+# Retired combined Portal/Terraform pipeline.
+# Portal application delivery is owned by azure-pipelines-container.yaml.
+# Subscription lifecycle is owned by azure-pipelines.yaml.
+trigger: none
+
+pr: none
+
+pool:
+  vmImage: ubuntu-22.04
+
+steps:
+  - bash: |
+      echo "This combined pipeline is retired."
+      echo "Use Portal Build & Deploy or Subscriptions Terraform."
+      exit 1
+    displayName: Reject retired pipeline

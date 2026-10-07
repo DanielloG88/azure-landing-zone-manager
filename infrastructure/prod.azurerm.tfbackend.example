@@ -1,0 +1,6 @@
+resource_group_name  = "rg-tfstate-landingzone-prod"
+storage_account_name = "<state-storage-account>"
+container_name       = "stct-tfstate-landingzone-prod"
+key                  = "prod.terraform.tfstate"
+subscription_id      = "<azure-id>"
+tenant_id            = "<azure-id>"

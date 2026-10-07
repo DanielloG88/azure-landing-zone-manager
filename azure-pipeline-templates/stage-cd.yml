@@ -1,0 +1,68 @@
+parameters:
+  - name: environmentName
+    type: string
+    default: dev
+  - name: environmentDisplayName
+    type: string
+    default: Development
+  - name: serviceConnection
+    type: string
+  - name: dependsOn
+    type: object
+    default: []
+  - name: condition
+    type: string
+    default: ""
+
+stages:
+  - stage: cd_${{ parameters.environmentName }}
+    displayName: Deploy ${{ parameters.environmentDisplayName }}
+    variables:
+      - name: terraformPlanName
+        value: terraform.${{ parameters.environmentName }}.tfplan
+    dependsOn: ${{ parameters.dependsOn }}
+    condition: ${{ parameters.condition }}
+    jobs:
+      - deployment: cd_infra_${{ parameters.environmentName }}
+        displayName: Deploy Infrastructure
+        environment: ${{ parameters.environmentName }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                  displayName: Check out the planned revision
+                  clean: true
+                  fetchDepth: 1
+                  persistCredentials: true
+
+                - bash: |
+                    set -euo pipefail
+
+                    REMOTE_MAIN_SHA=$(git ls-remote --exit-code origin refs/heads/main | awk 'NR == 1 { print $1 }')
+                    if [ -z "$REMOTE_MAIN_SHA" ]; then
+                      echo "Could not resolve the current refs/heads/main commit."
+                      exit 1
+                    fi
+
+                    if [ "$PLANNED_COMMIT" != "$REMOTE_MAIN_SHA" ]; then
+                      echo "Refusing to apply a stale Terraform plan."
+                      echo "Planned commit: $PLANNED_COMMIT"
+                      echo "Current main:   $REMOTE_MAIN_SHA"
+                      echo "Queue a new run and review its new plan."
+                      exit 1
+                    fi
+
+                    echo "Terraform plan is current for refs/heads/main: $PLANNED_COMMIT"
+                  displayName: Reject stale subscription plan
+                  env:
+                    PLANNED_COMMIT: $(Build.SourceVersion)
+
+                - template: terraform.yml
+                  parameters:
+                    serviceConnection: ${{ parameters.serviceConnection }}
+                    step: apply
+                    # Backend configuration comes from <environment>.azurerm.tfbackend that the template reads at runtime.
+                    environmentName: ${{ parameters.environmentName }}
+                    planName: $(terraformPlanName)
+                    workingDirectory: $(Pipeline.Workspace)/infrastructure-${{ parameters.environmentName }}

@@ -1,0 +1,65 @@
+trigger:
+  batch: true
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - "infrastructure/subscriptions.csv"
+      # Terraform loads every root *.tf file, including future additions.
+      - "infrastructure/*.tf"
+      - "infrastructure/.terraform.lock.hcl"
+      - "infrastructure/prod.azurerm.tfbackend"
+      - "infrastructure/terraform_modules/subscription/**"
+      - "infrastructure/tfstate_monitoring/**"
+      - "azure-pipelines.yaml"
+      - "azure-pipeline-templates/stage-ci.yml"
+      - "azure-pipeline-templates/ci-infra.yml"
+      - "azure-pipeline-templates/stage-cd.yml"
+      - "azure-pipeline-templates/terraform.yml"
+    exclude:
+      - "infrastructure/subscription-portal/**"
+      - "infrastructure/tfstate/**"
+      - "infrastructure/utils/**"
+
+pr: none
+
+variables:
+  - name: runBranchName
+    value: $[replace(replace(variables['Build.SourceBranch'], 'refs/heads/', ''), '/', '-')]
+  - name: serviceConnectionProd
+    value: spi-azure-landing-zone-manager
+
+pool:
+  vmImage: ubuntu-22.04
+
+name: $(runBranchName)-$(Date:yyyyMMdd)$(Rev:.r)
+
+stages:
+  - ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/main') }}:
+      - template: azure-pipeline-templates/stage-ci.yml
+        parameters:
+          serviceConnection: ${{ variables.serviceConnectionProd }}
+          environmentName: prod
+          environmentDisplayName: prod
+
+      - template: azure-pipeline-templates/stage-cd.yml
+        parameters:
+          environmentName: prod
+          environmentDisplayName: Prod
+          serviceConnection: ${{ variables.serviceConnectionProd }}
+          dependsOn: ci
+          condition: succeeded()
+
+  - ${{ else }}:
+      - stage: reject_non_main
+        displayName: Reject non-production branch
+        jobs:
+          - job: reject_non_main
+            displayName: Subscriptions Terraform is production-only
+            steps:
+              - bash: |
+                  echo "Subscriptions Terraform can only run from refs/heads/main."
+                  echo "Requested source branch: $(Build.SourceBranch)"
+                  exit 1
+                displayName: Reject unsafe source branch

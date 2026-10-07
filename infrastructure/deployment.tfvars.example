@@ -1,0 +1,18 @@
+environment             = "prod"
+tfstate_resource_group  = "<state-resource-group>"
+tfstate_storage_account = "<state-storage-account>"
+billing_scope           = "/providers/Microsoft.Billing/billingAccounts/<billing-account>/billingProfiles/<billing-profile>/invoiceSections/<invoice-section>"
+subscription_display_name_prefix = "alz"
+project_sp_prefix                 = "spi-alz"
+tfstate_monitoring_group_name     = "<monitoring-group>"
+management_group_id_aliases = {
+  LandingZones = "<landing-zones-management-group-id>"
+  Platform     = "<platform-management-group-id>"
+  Sandbox      = "<sandbox-management-group-id>"
+}
+default_subscription_tags = {
+  department  = "Platform Engineering"
+  team        = "Cloud Operations"
+  owner       = "owner@example.com"
+  cost-center = "CC-001"
+}

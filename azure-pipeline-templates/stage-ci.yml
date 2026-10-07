@@ -1,0 +1,21 @@
+parameters:
+  - name: serviceConnection
+    type: string
+  - name: environmentName
+    type: string
+  - name: environmentDisplayName
+    type: string
+  - name: additionalPlanCommandOptions
+    type: string
+    default: ""
+
+stages:
+  - stage: ci
+    displayName: "Continuous Integration"
+    jobs:
+        - template: ci-infra.yml
+          parameters:
+            serviceConnection: ${{ parameters.serviceConnection }}
+            environmentName: ${{ parameters.environmentName }}
+            environmentDisplayName: ${{ parameters.environmentDisplayName }}
+            additionalPlanCommandOptions: ${{ parameters.additionalPlanCommandOptions }}

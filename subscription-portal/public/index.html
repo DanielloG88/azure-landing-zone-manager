@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Azure Landing Zone Manager</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="header">
+        <div class="brandRow">
+          <div class="brandStripe" aria-label="Azure Landing Zone Manager">
+            <span class="brandLabel">Azure Landing Zones</span>
+          </div>
+        </div>
+        <h1>Azure Landing Zone Manager</h1>
+        <p class="subtitle">Create Azure subscription requests without editing CSV by hand.</p>
+        <div id="modeBanner" class="banner" hidden></div>
+      </header>
+
+      <section class="card">
+        <h2>Create subscription requests</h2>
+        <form id="requestsForm" class="form">
+          <div id="requests"></div>
+
+          <div class="actions">
+            <button type="button" class="secondary" id="addRequestButton">Add another subscription</button>
+            <button type="button" id="reviewButton">Send request for subscriptions</button>
+            <button type="button" class="secondary" id="dryRunButton">Dry run</button>
+          </div>
+
+          <div id="result" class="result" hidden></div>
+        </form>
+      </section>
+
+      <section class="card" id="reviewCard" hidden>
+        <h2>Review requested subscriptions</h2>
+        <div class="tableWrap">
+          <table class="table" id="reviewTable">
+            <thead>
+              <tr>
+                <th>project</th>
+                <th>environment</th>
+                <th>management_group_id</th>
+                <th>location</th>
+                <th>owner</th>
+                <th>cost-center</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="actions">
+          <button type="button" id="confirmButton">Confirm</button>
+          <button type="button" class="secondary" id="editButton">Back to edit</button>
+        </div>
+      </section>
+
+      <section class="card" id="existingSubscriptionsCard">
+        <h2>Existing subscriptions (from CSV)</h2>
+        <div class="tableWrap">
+          <table class="table" id="subsTable">
+            <thead>
+              <tr>
+                <th data-selection-col class="selectCol" hidden>select</th>
+                <th>status</th>
+                <th>project</th>
+                <th>environment</th>
+                <th>management_group_id</th>
+                <th>location</th>
+                <th>owner</th>
+                <th>cost-center</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="selectionSummary" id="selectionSummary" hidden>
+          <div class="selectionSummaryPrimary">
+            <span class="selectionCountPill" id="selectionCountPill">0 selected</span>
+            <span class="selectionSummaryText" id="selectionSummaryText">
+              Select 1 subscription to update or 1+ subscriptions to review destruction.
+            </span>
+          </div>
+          <div class="selectionSummaryHint" id="selectionSummaryHint">
+            Selection is neutral. Destruction only happens after review and confirm.
+          </div>
+        </div>
+        <div class="actions" id="removeActions" hidden>
+          <button type="button" class="danger" id="removeReviewButton">Review selected for destruction</button>
+          <button type="button" class="secondary" id="updateSubscriptionButton">Update selected subscription</button>
+          <button type="button" class="secondary" id="removeClearButton">Clear selection</button>
+          <button type="button" class="secondary" id="syncCsvButton">Sync CSV from Azure DevOps</button>
+        </div>
+        <div id="removeResult" class="result" hidden></div>
+      </section>
+
+      <section class="card" id="removeReviewCard" hidden>
+        <h2>Review destruction request</h2>
+        <div class="tableWrap">
+          <table class="table" id="removeReviewTable">
+            <thead>
+              <tr>
+                <th>project</th>
+                <th>environment</th>
+                <th>management_group_id</th>
+                <th>location</th>
+                <th>owner</th>
+                <th>cost-center</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="actions">
+          <button type="button" id="removeConfirmButton">Confirm destruction</button>
+          <button type="button" class="secondary" id="removeEditButton">Back to selection</button>
+        </div>
+      </section>
+
+      <section class="card" id="updateCard" hidden>
+        <h2>Update subscription</h2>
+        <form id="updateForm" class="form">
+          <div class="grid">
+            <label>
+              Project name
+              <input name="projectName" readonly />
+            </label>
+            <label>
+              Environment
+              <input name="environment" readonly />
+            </label>
+            <label>
+              Management group
+              <select name="managementGroupId" required></select>
+            </label>
+            <label>
+              Location
+              <select name="location" required></select>
+            </label>
+            <label>
+              Department (tag)
+              <input name="department" />
+            </label>
+            <label>
+              Team (tag)
+              <input name="team" />
+            </label>
+            <label>
+              Owner (tag)
+              <input name="owner" />
+            </label>
+            <label>
+              Cost center (tag)
+              <input name="costCenter" />
+            </label>
+            <label class="span2">
+              Billing scope
+              <input name="billingScope" />
+            </label>
+          </div>
+
+          <details class="details" open>
+            <summary>Subscription access groups</summary>
+            <p class="formSectionNote">Existing group settings are loaded from the latest CSV. Edit member lists to add or remove users.</p>
+            <div class="grid">
+              <div class="span2 accessGroupCard" data-access-group-role="owner">
+                <label class="accessGroupToggle">
+                  <input type="checkbox" name="subOwnerGroupEnabled" />
+                  <span class="accessGroupToggleText">
+                    <span class="accessGroupToggleTitle">Create Owner group</span>
+                    <small>Unchecked roles are not created.</small>
+                  </span>
+                </label>
+                <div class="grid accessGroupFields" data-access-group-fields="owner">
+                  <label class="span2">
+                    Owner group name
+                    <input name="subOwnerGroupName" placeholder="Azure-SUB-project-env-Owner" />
+                    <small>Suggested from naming convention. You can override it.</small>
+                  </label>
+                  <label class="span2">
+                    Owner members (UPN list)
+                    <textarea name="subOwnerMembers" rows="2" placeholder="john.doe@example.com; jane.smith@example.com"></textarea>
+                    <small>Comma, semicolon, or newline separated UPNs.</small>
+                  </label>
+                </div>
+              </div>
+
+              <div class="span2 accessGroupCard" data-access-group-role="contributor">
+                <label class="accessGroupToggle">
+                  <input type="checkbox" name="subContributorGroupEnabled" />
+                  <span class="accessGroupToggleText">
+                    <span class="accessGroupToggleTitle">Create Contributor group</span>
+                    <small>Unchecked roles are not created.</small>
+                  </span>
+                </label>
+                <div class="grid accessGroupFields" data-access-group-fields="contributor">
+                  <label class="span2">
+                    Contributor group name
+                    <input name="subContributorGroupName" placeholder="Azure-SUB-project-env-Contributor" />
+                    <small>Suggested from naming convention. You can override it.</small>
+                  </label>
+                  <label class="span2">
+                    Contributor members (UPN list)
+                    <textarea
+                      name="subContributorMembers"
+                      rows="2"
+                      placeholder="john.doe@example.com; jane.smith@example.com"
+                    ></textarea>
+                    <small>Comma, semicolon, or newline separated UPNs.</small>
+                  </label>
+                </div>
+              </div>
+
+              <div class="span2 accessGroupCard" data-access-group-role="reader">
+                <label class="accessGroupToggle">
+                  <input type="checkbox" name="subReaderGroupEnabled" />
+                  <span class="accessGroupToggleText">
+                    <span class="accessGroupToggleTitle">Create Reader group</span>
+                    <small>Unchecked roles are not created.</small>
+                  </span>
+                </label>
+                <div class="grid accessGroupFields" data-access-group-fields="reader">
+                  <label class="span2">
+                    Reader group name
+                    <input name="subReaderGroupName" placeholder="Azure-SUB-project-env-Reader" />
+                    <small>Suggested from naming convention. You can override it.</small>
+                  </label>
+                  <label class="span2">
+                    Reader members (UPN list)
+                    <textarea name="subReaderMembers" rows="2" placeholder="john.doe@example.com; jane.smith@example.com"></textarea>
+                    <small>Comma, semicolon, or newline separated UPNs.</small>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="details">
+            <summary>Optional metadata tags</summary>
+            <div class="grid">
+              <label>
+                Confidentiality
+                <input name="confidentiality" />
+              </label>
+              <label>
+                Workload ID
+                <input name="workloadId" />
+              </label>
+              <label>
+                App
+                <input name="app" />
+              </label>
+              <label>
+                Compliance
+                <input name="compliance" />
+              </label>
+              <label>
+                Project
+                <input name="project" />
+              </label>
+              <label>
+                SLA
+                <input name="sla" />
+              </label>
+              <label>
+                LeanIX
+                <input name="leanIX" />
+              </label>
+            </div>
+          </details>
+
+          <div class="actions">
+            <button type="button" class="secondary" id="updateDryRunButton">Dry run update</button>
+            <button type="button" id="updateSubmitButton">Submit update request</button>
+            <button type="button" class="secondary" id="updateCancelButton">Cancel</button>
+          </div>
+          <div id="updateResult" class="result" hidden></div>
+        </form>
+      </section>
+    </main>
+
+    <template id="requestTemplate">
+      <section class="requestModule" data-request-module>
+        <div class="requestModuleHeader">
+          <h3>Subscription request <span class="requestModuleIndex" data-request-index></span></h3>
+          <button type="button" class="secondary" data-remove-module>Remove</button>
+        </div>
+
+        <div class="requestModuleBody">
+          <div class="grid">
+            <label>
+              Project name
+              <input name="projectName" placeholder="project-dev" required />
+              <small>Becomes the subscription alias/name component.</small>
+            </label>
+
+            <label>
+              Environment
+              <select name="environment" required data-env-single></select>
+              <span class="envMultiToggle" data-env-multi-toggle-wrap>
+                <input type="checkbox" data-env-multi-toggle />
+                <span>Multiple environments</span>
+              </span>
+              <div class="envMultiOptions" data-env-multi-options hidden></div>
+            </label>
+
+            <label>
+              Management group
+              <select name="managementGroupId" required></select>
+            </label>
+
+            <label>
+              Location
+              <select name="location"></select>
+            </label>
+
+            <label>
+              Department (tag)
+              <input name="department" placeholder="Platform Engineering" />
+            </label>
+
+            <label>
+              Team (tag)
+              <input name="team" placeholder="Cloud Operations" />
+            </label>
+
+            <label>
+              Owner (tag)
+              <input name="owner" placeholder="owner@example.com" />
+            </label>
+
+            <label>
+              Cost center (tag)
+              <input name="costCenter" placeholder="CC-001" />
+            </label>
+
+            <label class="span2">
+              Billing scope (advanced)
+              <input name="billingScope" placeholder="/providers/Microsoft.Billing/..." />
+              <small>Leave empty to use the portal default.</small>
+            </label>
+          </div>
+
+          <details class="details" data-admin-group-fields>
+            <summary>Subscription access groups (admin only)</summary>
+            <div class="grid" data-shared-access-groups>
+              <div class="span2 accessGroupCard" data-access-group-role="owner">
+                <label class="accessGroupToggle">
+                  <input type="checkbox" name="subOwnerGroupEnabled" />
+                  <span class="accessGroupToggleText">
+                    <span class="accessGroupToggleTitle">Create Owner group</span>
+                    <small>Unchecked roles are not created.</small>
+                  </span>
+                </label>
+                <div class="grid accessGroupFields" data-access-group-fields="owner">
+                  <label class="span2">
+                    Owner group name
+                    <input name="subOwnerGroupName" placeholder="Azure-SUB-project-env-Owner" />
+                    <small>Suggested from naming convention. You can override it.</small>
+                  </label>
+                  <label class="span2">
+                    Owner members (UPN list)
+                    <textarea name="subOwnerMembers" rows="2" placeholder="john.doe@example.com; jane.smith@example.com"></textarea>
+                    <small>Comma, semicolon, or newline separated UPNs.</small>
+                  </label>
+                </div>
+              </div>
+              <div class="span2 accessGroupCard" data-access-group-role="contributor">
+                <label class="accessGroupToggle">
+                  <input type="checkbox" name="subContributorGroupEnabled" />
+                  <span class="accessGroupToggleText">
+                    <span class="accessGroupToggleTitle">Create Contributor group</span>
+                    <small>Unchecked roles are not created.</small>
+                  </span>
+                </label>
+                <div class="grid accessGroupFields" data-access-group-fields="contributor">
+                  <label class="span2">
+                    Contributor group name
+                    <input name="subContributorGroupName" placeholder="Azure-SUB-project-env-Contributor" />
+                    <small>Suggested from naming convention. You can override it.</small>
+                  </label>
+                  <label class="span2">
+                    Contributor members (UPN list)
+                    <textarea
+                      name="subContributorMembers"
+                      rows="2"
+                      placeholder="john.doe@example.com; jane.smith@example.com"
+                    ></textarea>
+                    <small>Comma, semicolon, or newline separated UPNs.</small>
+                  </label>
+                </div>
+              </div>
+              <div class="span2 accessGroupCard" data-access-group-role="reader">
+                <label class="accessGroupToggle">
+                  <input type="checkbox" name="subReaderGroupEnabled" />
+                  <span class="accessGroupToggleText">
+                    <span class="accessGroupToggleTitle">Create Reader group</span>
+                    <small>Unchecked roles are not created.</small>
+                  </span>
+                </label>
+                <div class="grid accessGroupFields" data-access-group-fields="reader">
+                  <label class="span2">
+                    Reader group name
+                    <input name="subReaderGroupName" placeholder="Azure-SUB-project-env-Reader" />
+                    <small>Suggested from naming convention. You can override it.</small>
+                  </label>
+                  <label class="span2">
+                    Reader members (UPN list)
+                    <textarea name="subReaderMembers" rows="2" placeholder="john.doe@example.com; jane.smith@example.com"></textarea>
+                    <small>Comma, semicolon, or newline separated UPNs.</small>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="envAccessGroupsWrap" data-env-access-groups hidden>
+              <p class="formSectionNote">Multiple environments selected. Configure access groups separately for each environment below.</p>
+              <div class="envAccessGroupsList" data-env-access-groups-list></div>
+            </div>
+          </details>
+
+          <details class="details">
+            <summary>Optional metadata tags</summary>
+            <div class="grid">
+              <label>
+                Confidentiality
+                <input name="confidentiality" />
+              </label>
+              <label>
+                Workload ID
+                <input name="workloadId" />
+              </label>
+              <label>
+                App
+                <input name="app" />
+              </label>
+              <label>
+                Compliance
+                <input name="compliance" />
+              </label>
+              <label>
+                Project
+                <input name="project" />
+              </label>
+              <label>
+                SLA
+                <input name="sla" />
+              </label>
+              <label>
+                LeanIX
+                <input name="leanIX" />
+              </label>
+            </div>
+          </details>
+
+        </div>
+      </section>
+    </template>
+
+    <script src="./vendor/msal-browser.min.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

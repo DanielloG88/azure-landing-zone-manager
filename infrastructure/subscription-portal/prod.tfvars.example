@@ -1,0 +1,30 @@
+subscription_id                = "<subscription-id>"
+location                       = "westeurope"
+resource_group_name            = "rg-alzportal-prod"
+container_app_environment_name = "cae-alzportal-prod"
+container_app_name             = "alz-portal-prod"
+container_name                 = "portal"
+container_registry_name        = "youracrprod"
+user_assigned_identity_name    = "id-alzportal-prod"
+key_vault_name                 = "kv-alzportal-prod-01"
+log_analytics_workspace_name   = "law-alzportal-prod"
+create_container_app           = false
+
+azdo = {
+  org_url       = "https://dev.azure.com/your-organization/"
+  project       = "azure-landing-zone-manager"
+  repo_id       = "azure-landing-zone-manager"
+  target_branch = "main"
+  enabled       = true
+}
+
+portal_auth = {
+  bearer_enabled   = true
+  aad_client_id    = "<client-id>"
+  aad_tenant_id    = "<tenant-id>"
+  aad_scopes       = ["api://<client-id>/user_impersonation"]
+  admin_groups     = ["<admin-group-id>"]
+  requester_groups = ["<requester-group-id>"]
+}
+
+container_app_auth_client_secret_secret_id = "https://<key-vault-name>.vault.azure.net/secrets/<auth-secret-name>"

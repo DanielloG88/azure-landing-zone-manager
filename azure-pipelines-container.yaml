@@ -1,0 +1,110 @@
+# Subscription Portal application CI/CD.
+# This pipeline never plans or applies subscription Terraform.
+trigger:
+  batch: true
+  branches:
+    include:
+      - main
+      - poc
+  paths:
+    include:
+      - "subscription-portal/**"
+      - "azure-pipelines-container.yaml"
+      - "azure-pipeline-templates/portal-build-deploy.yml"
+
+pr: none
+
+parameters:
+  - name: imageTag
+    displayName: Image tag (auto or override)
+    type: string
+    default: auto
+
+  - name: prodSubscriptionId
+    type: string
+    default: "<subscription-id>"
+  - name: prodResourceGroup
+    type: string
+    default: "<resource-group>"
+  - name: prodContainerApp
+    type: string
+    default: "<container-app>"
+  - name: prodRegistry
+    type: string
+    default: "<registry-name>"
+  - name: pocSubscriptionId
+    type: string
+    default: "<subscription-id>"
+  - name: pocResourceGroup
+    type: string
+    default: "<resource-group>"
+  - name: pocContainerApp
+    type: string
+    default: "<container-app>"
+  - name: pocRegistry
+    type: string
+    default: "<registry-name>"
+
+variables:
+  - name: prodServiceConnection
+    value: spi-subscription-portal-prod
+  - name: pocServiceConnection
+    value: spi-subscription-portal-poc
+  - name: imageRepository
+    value: subscription-portal
+  - name: tagPrefix
+    value: azportal-
+  - name: versionFile
+    value: subscription-portal/VERSION
+
+name: portal-$(Build.SourceBranchName)-$(Date:yyyyMMdd)$(Rev:.r)
+
+stages:
+  - ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/main') }}:
+      - template: azure-pipeline-templates/portal-build-deploy.yml
+        parameters:
+          environmentName: portal-prod
+          environmentDisplayName: PROD
+          serviceConnection: ${{ variables.prodServiceConnection }}
+          subscriptionId: ${{ parameters.prodSubscriptionId }}
+          resourceGroupName: ${{ parameters.prodResourceGroup }}
+          containerAppName: ${{ parameters.prodContainerApp }}
+          acrName: ${{ parameters.prodRegistry }}
+          imageRepository: ${{ variables.imageRepository }}
+          tagPrefix: ${{ variables.tagPrefix }}
+          versionFile: ${{ variables.versionFile }}
+          imageTag: ${{ parameters.imageTag }}
+          targetBranch: main
+          subscriptionsPath: /infrastructure/subscriptions.csv
+
+  - ${{ elseif eq(variables['Build.SourceBranch'], 'refs/heads/poc') }}:
+      - template: azure-pipeline-templates/portal-build-deploy.yml
+        parameters:
+          environmentName: portal-poc
+          environmentDisplayName: POC
+          serviceConnection: ${{ variables.pocServiceConnection }}
+          subscriptionId: ${{ parameters.pocSubscriptionId }}
+          resourceGroupName: ${{ parameters.pocResourceGroup }}
+          containerAppName: ${{ parameters.pocContainerApp }}
+          acrName: ${{ parameters.pocRegistry }}
+          imageRepository: ${{ variables.imageRepository }}
+          tagPrefix: ${{ variables.tagPrefix }}
+          versionFile: ${{ variables.versionFile }}
+          imageTag: ${{ parameters.imageTag }}
+          targetBranch: poc
+          subscriptionsPath: /portal-data/poc/subscriptions.csv
+
+  - ${{ else }}:
+      - stage: reject_unsupported_branch
+        displayName: Reject unsupported branch
+        jobs:
+          - job: reject_unsupported_branch
+            displayName: Portal deployment is restricted to main and poc
+            pool:
+              vmImage: ubuntu-22.04
+            steps:
+              - bash: |
+                  echo "Portal deployment can only run from refs/heads/main or refs/heads/poc."
+                  echo "Requested source branch: $(Build.SourceBranch)"
+                  exit 1
+                displayName: Reject unsafe source branch

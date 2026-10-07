@@ -1,0 +1,55 @@
+parameters:
+  - name: environmentName
+    type: string
+    default: dev
+  - name: environmentDisplayName
+    type: string
+    default: Development
+  - name: serviceConnection
+    type: string
+  - name: dependsOn
+    type: object
+    default: []
+  - name: condition
+    type: string
+    default: ""
+  - name: providerSubscriptionId
+    type: string
+    default: ""
+  - name: additionalPlanCommandOptions
+    type: string
+    default: ""
+  - name: additionalApplyCommandOptions
+    type: string
+    default: ""
+
+stages:
+  - stage: cd_portal_${{ parameters.environmentName }}
+    displayName: Deploy Subscription Portal ${{ parameters.environmentDisplayName }}
+    variables:
+      - name: terraformPlanName
+        value: terraform.${{ parameters.environmentName }}.tfplan
+      - name: terraformModuleDir
+        value: subscription-portal
+    dependsOn: ${{ parameters.dependsOn }}
+    condition: ${{ parameters.condition }}
+    jobs:
+      - deployment: cd_portal_${{ parameters.environmentName }}
+        displayName: Deploy Subscription Portal
+        environment: ${{ parameters.environmentName }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: portal-terraform.yml
+                  parameters:
+                    serviceConnection: ${{ parameters.serviceConnection }}
+                    step: apply
+                    # Backend configuration comes from <environment>.azurerm.tfbackend that the template reads at runtime.
+                    environmentName: ${{ parameters.environmentName }}
+                    providerSubscriptionId: ${{ parameters.providerSubscriptionId }}
+                    planName: $(terraformPlanName)
+                    workingDirectory: $(Pipeline.Workspace)/subscription-portal-${{ parameters.environmentName }}
+                    terraformModuleDir: $(terraformModuleDir)
+                    additionalPlanCommandOptions: ${{ parameters.additionalPlanCommandOptions }}
+                    additionalApplyCommandOptions: ${{ parameters.additionalApplyCommandOptions }}
