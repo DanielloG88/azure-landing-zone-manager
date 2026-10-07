@@ -1,7 +1,7 @@
 import { getDisplayProjectName } from "./projectName.js";
 
 const $ = (sel) => document.querySelector(sel);
-const SUMMARY_COLUMNS = ["project_name", "environment", "management_group_id", "location", "owner", "cost-center"];
+const SUMMARY_COLUMNS = ["project_name", "environment", "management_group_id", "location", "owner", "cost-center", "network_mode", "network_hub_key"];
 const ACCESS_GROUP_ROLES = [
   {
     key: "owner",
@@ -1044,6 +1044,41 @@ function updateRequestModuleIndices() {
   }
 }
 
+function syncNetworkEditor(container) {
+  const active = container.querySelector('[name="networkMode"]')?.value === "spoke";
+  const details = container.querySelector("[data-network-details]");
+  if (!details) return;
+  details.hidden = !active;
+  for (const field of details.querySelectorAll("input, select")) {
+    field.disabled = !active;
+    field.required = active;
+  }
+}
+
+function setupNetworkEditor(container, hubAliases) {
+  const mode = container.querySelector('[name="networkMode"]');
+  if (!mode) return;
+  fillSelect(container.querySelector('[name="networkHubKey"]'), hubAliases, hubAliases[0]);
+  mode.querySelector('option[value="spoke"]').disabled = hubAliases.length === 0;
+  container.querySelector("[data-network-availability]").textContent = hubAliases.length
+    ? "You can enable a spoke now or later through an update request."
+    : "Spokes become available after the platform team creates and configures a shared hub.";
+  mode.addEventListener("change", () => syncNetworkEditor(container));
+  syncNetworkEditor(container);
+}
+
+function readNetworkPayload(container) {
+  const read = (name) => String(container.querySelector(`[name="${name}"]`)?.value ?? "").trim();
+  const mode = read("networkMode") || "none";
+  return mode === "spoke" ? {
+    networkMode: mode,
+    networkHubKey: read("networkHubKey"),
+    networkAddressSpace: read("networkAddressSpace"),
+    networkWorkloadSubnetPrefix: read("networkWorkloadSubnetPrefix"),
+    networkPrivateEndpointSubnetPrefix: read("networkPrivateEndpointSubnetPrefix")
+  } : { networkMode: "none" };
+}
+
 function getModuleBasePayload(moduleEl) {
   const payload = {};
   const fields = [
@@ -1055,6 +1090,11 @@ function getModuleBasePayload(moduleEl) {
     "owner",
     "costCenter",
     "billingScope",
+    "networkMode",
+    "networkHubKey",
+    "networkAddressSpace",
+    "networkWorkloadSubnetPrefix",
+    "networkPrivateEndpointSubnetPrefix",
     "subOwnerGroupEnabled",
     "subContributorGroupEnabled",
     "subReaderGroupEnabled",
@@ -1076,7 +1116,7 @@ function getModuleBasePayload(moduleEl) {
 
   for (const field of fields) {
     const el = moduleEl.querySelector(`[name="${field}"]`);
-    if (!el) continue;
+    if (!el || el.disabled) continue;
     if (checkboxFields.has(field)) {
       payload[field] = el.checked === true;
       continue;
@@ -1154,6 +1194,7 @@ function buildUpdatePayload(updateForm) {
     owner: read("owner"),
     costCenter: read("costCenter"),
     billingScope: read("billingScope"),
+    ...readNetworkPayload(updateForm),
     subOwnerGroupEnabled: readCheckbox(updateForm, "subOwnerGroupEnabled"),
     subContributorGroupEnabled: readCheckbox(updateForm, "subContributorGroupEnabled"),
     subReaderGroupEnabled: readCheckbox(updateForm, "subReaderGroupEnabled"),
@@ -1182,7 +1223,10 @@ function validateEnvironmentSelections() {
       continue;
     }
     const selections = getModuleEnvironments(moduleEl);
-    if (selections.length === 0) {
+    if (selections.length > 1 && moduleEl.querySelector('[name="networkMode"]')?.value === "spoke") {
+      toggle.setCustomValidity("Create a separate request card with unique spoke CIDRs for each environment.");
+      ok = false;
+    } else if (selections.length === 0) {
       toggle.setCustomValidity("Select at least one environment.");
       ok = false;
     } else {
@@ -1202,6 +1246,7 @@ function setEditingEnabled(enabled) {
     for (const el of moduleEl.querySelectorAll("input, select, button")) {
       el.disabled = !enabled;
     }
+    if (enabled) syncNetworkEditor(moduleEl);
   }
 }
 
@@ -1488,6 +1533,7 @@ async function main() {
       if (updateSubscriptionButton) updateSubscriptionButton.disabled = true;
     }
 
+    setupNetworkEditor(updateForm, config.options.networkHubs ?? []);
     setupAccessGroupToggles(updateForm);
     setupAccessGroupNameSuggestions(updateForm);
 
@@ -1537,6 +1583,12 @@ async function main() {
       setValue("owner", row?.owner ?? "");
       setValue("costCenter", row?.["cost-center"] ?? "");
       setValue("billingScope", row?.billing_scope ?? "");
+      setValue("networkMode", row?.network_mode || "none");
+      setValue("networkHubKey", row?.network_hub_key ?? "");
+      setValue("networkAddressSpace", row?.network_address_space ?? "");
+      setValue("networkWorkloadSubnetPrefix", row?.network_workload_subnet_prefix ?? "");
+      setValue("networkPrivateEndpointSubnetPrefix", row?.network_private_endpoint_subnet_prefix ?? "");
+      syncNetworkEditor(updateForm);
       for (const role of ACCESS_GROUP_ROLES) {
         const checkbox = updateForm.querySelector(`[name="${role.enabledField}"]`);
         if (checkbox) checkbox.checked = resolveAccessGroupEnabled(row, role);
@@ -1792,6 +1844,7 @@ async function main() {
     const environmentSelect = moduleEl.querySelector('[name="environment"]');
     fillSelect(environmentSelect, config.options.environments, config.options.environments[0]);
     setupEnvironmentPicker(moduleEl, config.options.environments);
+    setupNetworkEditor(moduleEl, config.options.networkHubs ?? []);
     fillSelect(
       moduleEl.querySelector('[name="managementGroupId"]'),
       config.options.managementGroups,

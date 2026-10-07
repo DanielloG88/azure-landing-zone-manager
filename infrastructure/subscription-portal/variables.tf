@@ -275,3 +275,13 @@ variable "portal_env_overrides" {
   description = "Additional env vars (or overrides) for the portal container."
   default     = {}
 }
+
+variable "network_hub_aliases" {
+  type        = list(string)
+  description = "Shared hub aliases exported by the hub bootstrap and offered by the portal. Empty until a hub is configured."
+  default     = []
+  validation {
+    condition     = alltrue([for alias in var.network_hub_aliases : can(regex("^[a-z0-9][a-z0-9-]{0,47}$", alias))])
+    error_message = "Hub aliases must use lowercase letters, numbers and hyphens."
+  }
+}

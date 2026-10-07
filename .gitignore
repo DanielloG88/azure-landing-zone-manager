@@ -193,3 +193,7 @@ node_modules/
 .validation/
 graphify-out/
 .graphify_cache/
+
+# Python validation caches
+__pycache__/
+*.py[cod]

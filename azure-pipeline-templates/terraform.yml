@@ -1,4 +1,7 @@
 parameters:
+  - name: allowNetworkDeletion
+    type: boolean
+    default: false
   - name: terraformVersion
     type: string
     default: "1.11.4"
@@ -78,7 +81,7 @@ steps:
     inputs:
       provider: azurerm
       command: init
-      commandOptions: -reconfigure
+      commandOptions: -reconfigure -lockfile=readonly
       workingDirectory: ${{ parameters.workingDirectory }}
       backendServiceArm: ${{ parameters.serviceConnection }}
       backendAzureRmUseEntraIdForAuthentication: true
@@ -91,7 +94,6 @@ steps:
   - ${{ if eq(parameters['step'], 'plan') }}:
       - task: TerraformTask@5
         displayName: Format Terraform
-        continueOnError: true
         inputs:
           provider: azurerm
           command: custom
@@ -144,9 +146,21 @@ steps:
             -var tfstate_resource_group=$(resource_group_name)
             -var tfstate_storage_account=$(storage_account_name)
             -var environment=${{ parameters.environmentName }}
+            -parallelism=1
+            -lock-timeout=5m
             -out ${{ parameters.planName }}
             ${{ parameters.additionalPlanCommandOptions }}
           publishPlanResults: ${{ parameters.environmentName }}
+
+      - bash: |
+          set -euo pipefail
+          terraform show -json "$PLAN_NAME" | python3 "$GUARD_SCRIPT" --allow-network-deletion "$ALLOW_NETWORK_DELETION"
+        displayName: Reject unapproved networking removal
+        workingDirectory: ${{ parameters.workingDirectory }}
+        env:
+          PLAN_NAME: ${{ parameters.planName }}
+          GUARD_SCRIPT: $(Build.SourcesDirectory)/scripts/check-network-plan.py
+          ALLOW_NETWORK_DELETION: ${{ lower(parameters.allowNetworkDeletion) }}
 
   - ${{ elseif eq(parameters['step'], 'apply') }}:
       - task: TerraformTask@5

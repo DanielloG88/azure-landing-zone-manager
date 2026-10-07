@@ -28,3 +28,6 @@ portal_auth = {
 }
 
 container_app_auth_client_secret_secret_id = "https://<key-vault-name>.vault.azure.net/secrets/<auth-secret-name>"
+
+# Enable only aliases exported by a successfully applied shared hub.
+network_hub_aliases = []

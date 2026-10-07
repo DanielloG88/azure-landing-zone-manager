@@ -1,0 +1,3 @@
+project_name,environment,management_group_id,location,billing_scope,subscription_id,destroy,owner,cost-center,network_mode,network_hub_key,network_address_space,network_workload_subnet_prefix,network_private_endpoint_subnet_prefix
+connected,dev,LandingZones,westeurope,,,false,owner@example.com,CC-001,spoke,platform,10.20.0.0/16,10.20.1.0/24,10.20.2.0/24
+isolated,dev,LandingZones,westeurope,,00000000-0000-0000-0000-000000000003,false,owner@example.com,CC-001,none,,,,

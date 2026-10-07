@@ -12,8 +12,8 @@ a browser request portal, and Azure DevOps review and deployment pipelines.
 - Request updates or removals with separate administrator permissions.
 - Host the portal in Azure Container Apps using managed identity and Entra Easy Auth.
 
-This repository manages subscriptions and their bootstrap resources. It is not a full implementation
-of the Azure Landing Zones reference architecture: management groups, enterprise networking,
+This repository manages subscriptions, their bootstrap resources and optional hub-and-spoke networking. It is not a full implementation
+of the Azure Landing Zones reference architecture: management groups, enterprise routing,
 and organization-wide policy assignments must be designed and provisioned separately.
 
 ## Run the local preview
@@ -55,11 +55,13 @@ see [`infrastructure/existing-subscriptions.md`](infrastructure/existing-subscri
 
 ### Azure DevOps pipelines
 
-GitHub hosts source and CI validation. The portal's PR integration currently targets **Azure DevOps**.
+GitHub hosts source only. Azure DevOps runs CI validation and deployments. The portal's PR integration currently targets **Azure DevOps**.
 It does not create GitHub pull requests. Connect the repository to Azure Pipelines and configure
 an Azure DevOps repository for portal changes, or extend the provider before using a GitHub-only workflow.
 
-- `azure-pipelines.yaml`: subscription Terraform, restricted to `main`.
+- `azure-pipelines.yaml`: subscription and optional spoke Terraform, restricted to `main`.
+- `azure-pipelines-network-hub.yaml`: shared hub bootstrap with separate state.
+- `azure-pipelines-validation.yaml`: portal, plan guard and mocked Terraform validation.
 - `azure-pipelines-container.yaml`: portal container delivery from `main` or `poc`.
 - `azure-pipelines-cleanup*.yaml`: inventory cleanup through reviewed PRs.
 - `azure-pipeline-templates/portal-*.yml`: reusable portal infrastructure templates.
@@ -106,7 +108,7 @@ terraform init -backend=false -input=false
 terraform validate
 ```
 
-The GitHub workflow runs tests and backend-free Terraform validation. It does not deploy Azure resources.
+[`azure-pipelines-validation.yaml`](azure-pipelines-validation.yaml) runs portal tests, plan-guard tests and backend-free Terraform validation with mocked Azure providers. GitHub Actions are not used. Configure it as an Azure Repos build validation policy for `main`.
 Deployment configuration, credentials, local previews, state and dependency directories are ignored by Git.
 
 ## More documentation
@@ -115,3 +117,14 @@ Deployment configuration, credentials, local previews, state and dependency dire
 - [Portal infrastructure](infrastructure/subscription-portal/README.md)
 - [Terraform state backend](infrastructure/tfstate/README.md)
 - [Local PowerShell authentication helper](infrastructure/utils/README.md)
+
+## Integrated hub and spoke
+
+Networking is part of the subscription request workflow. The shared hub is created once; a project can opt into its own connected spoke when requesting a subscription or later through an update.
+
+- **No managed network**: the subscription is created or updated without networking resources.
+- **Create spoke and connect to shared hub**: the same subscription pipeline creates a VNet, workload/private endpoint subnets, NSGs, both peerings and links to the hub's selected private DNS zones.
+
+The canonical input remains `infrastructure/subscriptions.csv`; there is no separate spoke inventory. Terraform passes the new or existing subscription ID directly from the subscription module to the networking module. Legacy CSV rows default to `network_mode=none`.
+
+Create the hub using [`azure-pipelines-network-hub.yaml`](azure-pipelines-network-hub.yaml), then configure its catalogue and portal alias. See the complete [networking setup and lifecycle guide](docs/networking.md). Workload deployment modules use the exported subnet IDs.

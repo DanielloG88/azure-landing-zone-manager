@@ -104,6 +104,7 @@ export const portalConfig = {
   options: {
     environments: parseCsvList(process.env.PORTAL_ENVIRONMENTS, ["dev", "test", "prod"]),
     managementGroups: parseCsvList(process.env.PORTAL_MANAGEMENT_GROUPS, ["LandingZones", "Platform", "Sandbox"]),
+    networkHubs: parseCsvList(process.env.PORTAL_NETWORK_HUBS, []),
     locations: parseCsvList(process.env.PORTAL_LOCATIONS, ["westeurope", "northeurope"])
   },
 

@@ -1,0 +1,98 @@
+parameters:
+  - name: hubKey
+    type: string
+  - name: allowNetworkDeletion
+    type: boolean
+    default: false
+  - name: step
+    type: string
+    values: [plan, apply]
+  - name: serviceConnection
+    type: string
+  - name: workingDirectory
+    type: string
+  - name: backendSecureFile
+    type: string
+  - name: inputSecureFile
+    type: string
+  - name: planArtifact
+    type: string
+
+steps:
+  - task: TerraformInstaller@1
+    displayName: Install Terraform
+    inputs:
+      terraformVersion: '1.11.4'
+
+  - task: DownloadSecureFile@1
+    name: backendConfiguration
+    displayName: Download backend configuration
+    inputs:
+      secureFile: ${{ parameters.backendSecureFile }}
+
+  - ${{ if eq(parameters.step, 'plan') }}:
+      - task: DownloadSecureFile@1
+        name: terraformConfiguration
+        displayName: Download Terraform inputs
+        inputs:
+          secureFile: ${{ parameters.inputSecureFile }}
+
+  - task: AzureCLI@2
+    displayName: Terraform ${{ parameters.step }} with workload identity
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      addSpnToEnvironment: true
+      scriptType: bash
+      scriptLocation: inlineScript
+      workingDirectory: ${{ parameters.workingDirectory }}
+      inlineScript: |
+        set -euo pipefail
+        export ARM_CLIENT_ID="$servicePrincipalId"
+        export ARM_TENANT_ID="$tenantId"
+        export ARM_OIDC_TOKEN="${idToken:?Use a workload identity federation service connection}"
+        export ARM_USE_OIDC=true
+        export ARM_USE_AZUREAD=true
+        export ARM_SUBSCRIPTION_ID="$(az account show --query id --output tsv)"
+        terraform init -input=false -lockfile=readonly -backend-config="$BACKEND_CONFIGURATION"
+        if [ "$TERRAFORM_STEP" = plan ]; then
+          terraform fmt -check -recursive
+          terraform validate -no-color
+          mkdir -p "$PLAN_OUTPUT_DIRECTORY"
+          terraform plan -input=false -lock-timeout=5m -parallelism=1 \
+            -var-file="$INPUT_CONFIGURATION" -var="hub_key=$HUB_KEY" -out="$PLAN_OUTPUT_DIRECTORY/deployment.tfplan"
+          terraform show -json "$PLAN_OUTPUT_DIRECTORY/deployment.tfplan" | python3 "$GUARD_SCRIPT" --scope hub --allow-network-deletion "$ALLOW_NETWORK_DELETION"
+          printf '%s\n' "$BUILD_SOURCEVERSION" > "$PLAN_OUTPUT_DIRECTORY/commit.txt"
+        else
+          test "$(cat "$PLAN_INPUT_DIRECTORY/commit.txt")" = "$BUILD_SOURCEVERSION"
+          git fetch --quiet origin refs/heads/main
+          test "$(git rev-parse FETCH_HEAD)" = "$BUILD_SOURCEVERSION"
+          terraform apply -input=false -lock-timeout=5m -parallelism=1 "$PLAN_INPUT_DIRECTORY/deployment.tfplan"
+          mkdir -p "$CATALOG_OUTPUT_DIRECTORY"
+          terraform output -json hub | python3 -c 'import json,os,sys; json.dump({"network_hubs":{os.environ["HUB_KEY"]:json.load(sys.stdin)}},sys.stdout)' > "$CATALOG_OUTPUT_DIRECTORY/network-hubs.auto.tfvars.json"
+          echo "##vso[build.addbuildtag]HubCatalog"
+        fi
+    env:
+      HUB_KEY: ${{ parameters.hubKey }}
+      GUARD_SCRIPT: $(Build.SourcesDirectory)/scripts/check-network-plan.py
+      ALLOW_NETWORK_DELETION: ${{ lower(parameters.allowNetworkDeletion) }}
+      CATALOG_OUTPUT_DIRECTORY: $(Build.ArtifactStagingDirectory)/network-hub-catalog
+      TERRAFORM_STEP: ${{ parameters.step }}
+      BACKEND_CONFIGURATION: $(backendConfiguration.secureFilePath)
+      PLAN_OUTPUT_DIRECTORY: $(Build.ArtifactStagingDirectory)/${{ parameters.planArtifact }}
+      PLAN_INPUT_DIRECTORY: $(Pipeline.Workspace)/${{ parameters.planArtifact }}
+      ${{ if eq(parameters.step, 'plan') }}:
+        INPUT_CONFIGURATION: $(terraformConfiguration.secureFilePath)
+
+  - ${{ if eq(parameters.step, 'plan') }}:
+      - task: PublishPipelineArtifact@1
+        displayName: Publish reviewed plan only
+        inputs:
+          targetPath: $(Build.ArtifactStagingDirectory)/${{ parameters.planArtifact }}
+          artifact: ${{ parameters.planArtifact }}
+
+  - ${{ if eq(parameters.step, 'apply') }}:
+      - task: PublishPipelineArtifact@1
+        displayName: Publish applied shared hub contract
+        inputs:
+          targetPath: $(Build.ArtifactStagingDirectory)/network-hub-catalog
+          artifact: network-hub-catalog

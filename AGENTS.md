@@ -4,6 +4,8 @@
 
 - `subscription-portal/`: Express API and browser UI.
 - `infrastructure/`: subscription lifecycle Terraform and CSV schema.
+- `infrastructure/networking/hub/`: shared hub bootstrap with separate state.
+- `infrastructure/terraform_modules/subscription_networking/`: optional spokes driven by the subscription CSV.
 - `infrastructure/subscription-portal/`: optional Container Apps stack.
 - `azure-pipeline-templates/`: reusable Azure DevOps stages.
 
@@ -22,7 +24,7 @@ The frontend uses relative URLs so reverse proxies may mount it under a public p
 
 ## Deployment
 
-GitHub hosts the source and validation workflow. Azure DevOps remains the runtime PR provider.
+GitHub hosts source only. Azure DevOps runs validation, hub bootstrap and subscription lifecycle pipelines, and remains the runtime PR provider.
 Configure service connections, secure files and environment approvals before using Azure pipelines.
 Subscription lifecycle runs from `main`; the `poc` branch uses separate portal data.
 Never apply Terraform or remove Azure resources during repository-only changes.

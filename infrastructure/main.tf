@@ -117,6 +117,11 @@ locals {
     "manage_management_group_attachment",
     "destroy",
     "destroyed_at",
+    "network_mode",
+    "network_hub_key",
+    "network_address_space",
+    "network_workload_subnet_prefix",
+    "network_private_endpoint_subnet_prefix",
     "sub_owner_group_enabled",
     "sub_contributor_group_enabled",
     "sub_reader_group_enabled",
@@ -147,7 +152,7 @@ locals {
   }, var.default_subscription_tags)
 
   # Read CSV file: one row per subscription
-  subscriptions_csv = csvdecode(file("${path.module}/subscriptions.csv"))
+  subscriptions_csv = csvdecode(file("${path.module}/${var.subscriptions_csv_path}"))
 
   # Normalised map keyed by project_name from the CSV
   # Shape:
@@ -204,7 +209,12 @@ locals {
         "${lower(trimspace(item.project_name))}-${lower(trimspace(item.environment))}",
         ""
       )
-      display_project_name = trimspace(lookup(item, "display_project_name", ""))
+      network_mode                           = lower(trimspace(lookup(item, "network_mode", ""))) != "" ? lower(trimspace(lookup(item, "network_mode", ""))) : "none"
+      network_hub_key                        = trimspace(lookup(item, "network_hub_key", ""))
+      network_address_space                  = trimspace(lookup(item, "network_address_space", ""))
+      network_workload_subnet_prefix         = trimspace(lookup(item, "network_workload_subnet_prefix", ""))
+      network_private_endpoint_subnet_prefix = trimspace(lookup(item, "network_private_endpoint_subnet_prefix", ""))
+      display_project_name                   = trimspace(lookup(item, "display_project_name", ""))
       subscription_display_name_override = trimspace(lookup(item, "display_project_name", "")) != "" ? format(
         "%s-%s-%s",
         var.subscription_display_name_prefix,
@@ -250,6 +260,7 @@ module "subscription" {
   # One module instance per CSV row (one row = one subscription)
   for_each = local.subscriptions
 
+  depends_on                            = [terraform_data.network_requests, module.network_address_plan]
   source                                = "./terraform_modules/subscription"
   tags                                  = each.value.tags
   environment                           = each.value.environment

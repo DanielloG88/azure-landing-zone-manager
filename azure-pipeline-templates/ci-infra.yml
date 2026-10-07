@@ -1,4 +1,10 @@
 parameters:
+  - name: allowNetworkDeletion
+    type: boolean
+    default: false
+  - name: hubPipelineId
+    type: string
+    default: "0"
   - name: environmentName
     type: string
   - name: environmentDisplayName
@@ -18,6 +24,25 @@ jobs:
       - name: terraformWorkingDirectory
         value: $(System.DefaultWorkingDirectory)/infrastructure
     steps:
+      - ${{ if ne(parameters.hubPipelineId, '0') }}:
+          - task: DownloadPipelineArtifact@2
+            displayName: Download latest applied shared hub catalogue
+            inputs:
+              buildType: specific
+              project: $(System.TeamProject)
+              definition: ${{ parameters.hubPipelineId }}
+              buildVersionToDownload: latestFromBranch
+              branchName: refs/heads/main
+              tags: HubCatalog
+              artifactName: network-hub-catalog
+              targetPath: $(Pipeline.Workspace)/network-hub-catalog
+          - bash: |
+              set -euo pipefail
+              cp "$HUB_CATALOG" "$WORKING_DIRECTORY/network-hubs.auto.tfvars.json"
+            displayName: Load shared hub contract for this plan
+            env:
+              HUB_CATALOG: $(Pipeline.Workspace)/network-hub-catalog/network-hubs.auto.tfvars.json
+              WORKING_DIRECTORY: $(terraformWorkingDirectory)
       - template: terraform.yml
         parameters:
           serviceConnection: ${{ parameters.serviceConnection }}
@@ -26,6 +51,7 @@ jobs:
           environmentName: ${{ parameters.environmentName }}
           planName: $(terraformPlanName)
           workingDirectory: $(terraformWorkingDirectory)
+          allowNetworkDeletion: ${{ parameters.allowNetworkDeletion }}
           additionalPlanCommandOptions: ${{ parameters.additionalPlanCommandOptions }}
 
       - task: DeleteFiles@1
@@ -35,6 +61,7 @@ jobs:
           contents: |
             .terraform
             **/*.tfvars
+            **/*.tfvars.json
             **/*.tfbackend
             ${{ parameters.environmentName }}
 

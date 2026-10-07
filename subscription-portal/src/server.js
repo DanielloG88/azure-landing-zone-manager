@@ -1,3 +1,4 @@
+import { assertConfiguredHub, assertNetworkInventory } from "./networking.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -322,6 +323,7 @@ app.post("/api/subscriptions/sync", requireAdmin, async (_req, res) => {
 app.post("/api/subscription-requests", requireRequester, async (req, res) => {
   try {
     const request = subscriptionRequestSchema.parse(req.body);
+    assertConfiguredHub(request, portalConfig.options.networkHubs);
     const access = getUserAccess(req);
     if (!access.isAdmin && hasCustomGroupConfig(request)) {
       res.status(403).json({ ok: false, error: "Only admins can configure subscription access groups." });
@@ -330,6 +332,7 @@ app.post("/api/subscription-requests", requireRequester, async (req, res) => {
     const newRow = toCsvRow(request, portalConfig.defaults);
     const { content: existingCsv, commitId: baseObjectId } = await readSubscriptionsCsvSnapshot();
     const updatedCsv = addSubscriptionToCsv({ csvText: existingCsv, newRow });
+    assertNetworkInventory(parseSubscriptionsCsv(updatedCsv).rows);
 
     if (request.dryRun) {
       const parsed = parseSubscriptionsCsv(updatedCsv);
@@ -415,6 +418,7 @@ app.post("/api/subscription-requests/batch", requireRequester, async (req, res) 
   try {
     const batch = subscriptionRequestsBatchSchema.parse(req.body);
     const requests = batch.requests ?? [];
+    requests.forEach((request) => assertConfiguredHub(request, portalConfig.options.networkHubs));
     const access = getUserAccess(req);
     if (!access.isAdmin && requests.some(hasCustomGroupConfig)) {
       res.status(403).json({ ok: false, error: "Only admins can configure subscription access groups." });
@@ -424,6 +428,7 @@ app.post("/api/subscription-requests/batch", requireRequester, async (req, res) 
     const newRows = requests.map((request) => toCsvRow(request, portalConfig.defaults));
     const { content: existingCsv, commitId: baseObjectId } = await readSubscriptionsCsvSnapshot();
     const updatedCsv = addSubscriptionsToCsv({ csvText: existingCsv, newRows });
+    assertNetworkInventory(parseSubscriptionsCsv(updatedCsv).rows);
 
     if (batch.dryRun) {
       const parsed = parseSubscriptionsCsv(updatedCsv);
@@ -514,6 +519,7 @@ app.post("/api/subscription-requests/batch", requireRequester, async (req, res) 
 app.post("/api/subscription-requests/update", requireAdmin, async (req, res) => {
   try {
     const request = subscriptionUpdateSchema.parse(req.body);
+    assertConfiguredHub(request, portalConfig.options.networkHubs);
     const patch = toCsvPatch(request, portalConfig.defaults);
     if (Object.keys(patch).length === 0) {
       res.status(400).json({ ok: false, error: "No update fields supplied." });
@@ -529,6 +535,7 @@ app.post("/api/subscription-requests/update", requireAdmin, async (req, res) => 
       },
       patch
     });
+    assertNetworkInventory(parseSubscriptionsCsv(updatedCsv).rows);
 
     if (request.dryRun) {
       const previewRow = headers.map((h) => updatedRow?.[h] ?? "");

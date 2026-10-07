@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { networkFields, networkFieldMap, validateNetworkRequest } from "./networking.js";
 
 const groupNameSchema = z
   .string()
@@ -47,8 +48,9 @@ const memberListSchema = z
   .max(4000)
   .refine(isValidMemberList, "Use comma/semicolon/newline-separated user UPNs (e.g. user@example.com).");
 
-export const subscriptionRequestSchema = z
+const subscriptionRequestBaseSchema = z
   .object({
+    ...networkFields,
     projectName: projectNameSchema,
     environment: environmentNameSchema,
     managementGroupId: z.string().trim().min(1).max(64),
@@ -83,10 +85,12 @@ export const subscriptionRequestSchema = z
   })
   .strict();
 
-export const subscriptionRequestItemSchema = subscriptionRequestSchema.omit({ dryRun: true });
+export const subscriptionRequestSchema = subscriptionRequestBaseSchema.superRefine(validateNetworkRequest);
+export const subscriptionRequestItemSchema = subscriptionRequestBaseSchema.omit({ dryRun: true }).superRefine(validateNetworkRequest);
 
-export const subscriptionUpdateSchema = z
+const subscriptionUpdateBaseSchema = z
   .object({
+    ...networkFields,
     projectName: projectNameSchema,
     environment: environmentNameSchema,
     managementGroupId: z.string().trim().min(1).max(64).optional(),
@@ -115,6 +119,8 @@ export const subscriptionUpdateSchema = z
     dryRun: z.boolean().optional()
   })
   .strict();
+
+export const subscriptionUpdateSchema = subscriptionUpdateBaseSchema.superRefine(validateNetworkRequest);
 
 export const subscriptionRequestsBatchSchema = z
   .object({
@@ -244,6 +250,11 @@ export function toCsvRow(request, defaults) {
     owner: safe(request.owner ?? defaults.owner),
     "cost-center": safe(request.costCenter ?? defaults.costCenter),
     billing_scope: safe(request.billingScope ?? defaults.billingScope),
+    network_mode: request.networkMode ?? "none",
+    network_hub_key: request.networkMode === "spoke" ? safe(request.networkHubKey) : "",
+    network_address_space: request.networkMode === "spoke" ? safe(request.networkAddressSpace) : "",
+    network_workload_subnet_prefix: request.networkMode === "spoke" ? safe(request.networkWorkloadSubnetPrefix) : "",
+    network_private_endpoint_subnet_prefix: request.networkMode === "spoke" ? safe(request.networkPrivateEndpointSubnetPrefix) : "",
     sub_owner_group_enabled: subOwnerGroup.enabled,
     sub_contributor_group_enabled: subContributorGroup.enabled,
     sub_reader_group_enabled: subReaderGroup.enabled,
@@ -266,6 +277,7 @@ export function toCsvRow(request, defaults) {
 }
 
 const updateFieldMap = {
+  ...networkFieldMap,
   managementGroupId: "management_group_id",
   location: "location",
   department: "department",
@@ -318,6 +330,10 @@ export function toCsvPatch(request, defaults = {}) {
     if (Object.hasOwn(source, requestField)) {
       patch[csvColumn] = normalizedRow[csvColumn];
     }
+  }
+
+  if (source.networkMode === "none") {
+    for (const column of Object.values(networkFieldMap).slice(1)) patch[column] = "";
   }
 
   for (const group of updateGroupFields) {

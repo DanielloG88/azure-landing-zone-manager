@@ -204,3 +204,11 @@ Set the Entra redirect URI to the actual public portal URL, including that prefi
 Azure DevOps integration still uses managed identity; GitHub hosts the source only.
 Production authorization trusts the principal header validated by Azure Container Apps Easy Auth.
 The Express server does not independently validate bearer tokens. Keep it behind that trusted ingress.
+
+## Project networking
+
+Configure `PORTAL_NETWORK_HUBS=platform` only after the shared hub bootstrap completes and the same alias is configured for the subscription pipeline. A request or subscription update can choose `none` or `spoke`. For `spoke`, supply the hub alias and distinct VNet, workload subnet and private endpoint subnet IPv4 CIDRs.
+
+The portal writes those fields to the existing subscription CSV and submits the same Azure DevOps PR workflow. A batch must use separate request cards with unique CIDRs per environment. The portal checks subnet containment and overlap between requested spokes; Terraform also checks the hub and configured external network ranges.
+
+Existing rows without networking fields remain unchanged. Switching an already managed spoke to `none` proposes removal: the pipeline blocks deletion until a manual run explicitly sets `allowNetworkDeletion=true` and its environment approval completes. See the [networking guide](../docs/networking.md).

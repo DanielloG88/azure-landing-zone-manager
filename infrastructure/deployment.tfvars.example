@@ -16,3 +16,9 @@ default_subscription_tags = {
   owner       = "owner@example.com"
   cost-center = "CC-001"
 }
+
+# Shared hub catalogues can be downloaded by azure-pipelines.yaml using hubPipelineId.
+# Leave this empty when using that catalogue, or populate it with the hub output in secure files.
+network_hubs = {}
+network_external_address_spaces = {}
+network_provider_registration_wait = "90s"

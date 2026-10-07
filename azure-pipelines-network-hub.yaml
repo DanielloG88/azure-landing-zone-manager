@@ -1,0 +1,91 @@
+name: network-hub-$(Date:yyyyMMdd).$(Rev:r)
+trigger: none
+pr: none
+
+parameters:
+  - name: environmentName
+    type: string
+    default: prod
+    values: [dev, test, prod]
+  - name: hubKey
+    displayName: Shared hub alias (lowercase letters, numbers and hyphens)
+    type: string
+    default: platform
+  - name: serviceConnection
+    type: string
+    default: spi-azure-landing-zone-network-hub
+  - name: enableApply
+    type: boolean
+    default: false
+  - name: allowNetworkDeletion
+    type: boolean
+    default: false
+
+pool:
+  vmImage: ubuntu-22.04
+
+variables:
+  workingDirectory: $(Build.SourcesDirectory)/infrastructure/networking/hub
+  backendSecureFile: networking-hub-${{ parameters.hubKey }}-${{ parameters.environmentName }}.azurerm.tfbackend
+  inputSecureFile: networking-hub-${{ parameters.hubKey }}-${{ parameters.environmentName }}.tfvars
+  planArtifact: networking-hub-${{ parameters.hubKey }}-${{ parameters.environmentName }}-plan
+
+stages:
+  - stage: Plan
+    jobs:
+      - job: TerraformPlan
+        steps:
+          - checkout: self
+            clean: true
+            persistCredentials: true
+          - bash: |
+              set -euo pipefail
+              if [[ ! "$HUB_KEY" =~ ^[a-z0-9][a-z0-9-]{0,47}$ ]]; then
+                echo "Use a valid shared hub alias."
+                exit 1
+              fi
+            displayName: Validate shared hub alias
+            env:
+              HUB_KEY: ${{ parameters.hubKey }}
+          - template: azure-pipeline-templates/network-hub-terraform.yml
+            parameters:
+              step: plan
+              serviceConnection: ${{ parameters.serviceConnection }}
+              workingDirectory: $(workingDirectory)
+              backendSecureFile: $(backendSecureFile)
+              inputSecureFile: $(inputSecureFile)
+              planArtifact: $(planArtifact)
+              hubKey: ${{ parameters.hubKey }}
+              allowNetworkDeletion: ${{ parameters.allowNetworkDeletion }}
+
+  - ${{ if eq(parameters.enableApply, true) }}:
+      - stage: Apply
+        dependsOn: Plan
+        condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+        lockBehavior: sequential
+        jobs:
+          - deployment: TerraformApply
+            environment: networking-${{ parameters.hubKey }}-${{ parameters.environmentName }}
+            strategy:
+              runOnce:
+                deploy:
+                  steps:
+                    - checkout: self
+                      clean: true
+                      persistCredentials: true
+                    - download: none
+                    - task: DownloadPipelineArtifact@2
+                      inputs:
+                        buildType: current
+                        artifactName: $(planArtifact)
+                        targetPath: $(Pipeline.Workspace)/$(planArtifact)
+                    - template: azure-pipeline-templates/network-hub-terraform.yml
+                      parameters:
+                        step: apply
+                        serviceConnection: ${{ parameters.serviceConnection }}
+                        workingDirectory: $(workingDirectory)
+                        backendSecureFile: $(backendSecureFile)
+                        inputSecureFile: $(inputSecureFile)
+                        planArtifact: $(planArtifact)
+                        hubKey: ${{ parameters.hubKey }}
+                        allowNetworkDeletion: ${{ parameters.allowNetworkDeletion }}

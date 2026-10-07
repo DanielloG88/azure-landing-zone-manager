@@ -66,6 +66,7 @@ locals {
     PORT                            = "3000"
     PORTAL_AZDO_ENABLED             = var.azdo.enabled ? "true" : "false"
     PORTAL_WRITE_LOCAL              = "false"
+    PORTAL_NETWORK_HUBS             = join(",", var.network_hub_aliases)
     AZDO_ORG_URL                    = var.azdo.org_url
     AZDO_PROJECT                    = var.azdo.project
     AZDO_REPO_ID                    = var.azdo.repo_id

@@ -1,4 +1,10 @@
 parameters:
+  - name: allowNetworkDeletion
+    type: boolean
+    default: false
+  - name: hubPipelineId
+    type: string
+    default: "0"
   - name: serviceConnection
     type: string
   - name: environmentName
@@ -18,4 +24,6 @@ stages:
             serviceConnection: ${{ parameters.serviceConnection }}
             environmentName: ${{ parameters.environmentName }}
             environmentDisplayName: ${{ parameters.environmentDisplayName }}
+            allowNetworkDeletion: ${{ parameters.allowNetworkDeletion }}
+            hubPipelineId: ${{ parameters.hubPipelineId }}
             additionalPlanCommandOptions: ${{ parameters.additionalPlanCommandOptions }}

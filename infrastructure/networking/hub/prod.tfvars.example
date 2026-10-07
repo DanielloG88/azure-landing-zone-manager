@@ -1,0 +1,21 @@
+subscription_id = "<connectivity-subscription-id>"
+environment     = "prod"
+name_prefix     = "alz"
+project_name    = "connectivity"
+location        = "westeurope"
+address_space   = ["10.100.0.0/16"]
+subnets = {
+  shared-services = ["10.100.1.0/24"]
+}
+private_dns_zone_names = [
+  "privatelink.blob.core.windows.net",
+  "privatelink.file.core.windows.net",
+  "privatelink.vaultcore.azure.net",
+]
+tags = {
+  owner       = "owner@example.com"
+  cost-center = "CC-001"
+  department  = "Platform Engineering"
+  team        = "Cloud Operations"
+}
+enable_delete_lock = true

@@ -1,0 +1,65 @@
+name: validation-$(Date:yyyyMMdd).$(Rev:r)
+trigger:
+  branches:
+    include: [main]
+pr:
+  branches:
+    include: [main]
+
+pool:
+  vmImage: ubuntu-22.04
+
+jobs:
+  - job: Portal
+    steps:
+      - checkout: self
+      - task: NodeTool@0
+        inputs:
+          versionSpec: "22.x"
+      - bash: |
+          set -euo pipefail
+          npm ci
+          npm test
+        workingDirectory: subscription-portal
+        displayName: Validate request and update flows
+      - bash: python3 -m unittest discover -s scripts -p 'test_*.py'
+        displayName: Validate network plan guard
+
+  - job: Terraform
+    strategy:
+      matrix:
+        subscriptions:
+          directory: infrastructure
+          runTests: "true"
+        portal:
+          directory: infrastructure/subscription-portal
+          runTests: "false"
+        state:
+          directory: infrastructure/tfstate
+          runTests: "false"
+        hub:
+          directory: infrastructure/networking/hub
+          runTests: "true"
+        addresses:
+          directory: infrastructure/networking/terraform_modules/address_plan
+          runTests: "true"
+        spokes:
+          directory: infrastructure/terraform_modules/subscription_networking
+          runTests: "true"
+    steps:
+      - checkout: self
+      - task: TerraformInstaller@1
+        inputs:
+          terraformVersion: "1.11.4"
+      - bash: |
+          set -euo pipefail
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false -lockfile=readonly
+          terraform validate -no-color
+          if [ "$RUN_TESTS" = true ]; then
+            terraform test -no-color
+          fi
+        workingDirectory: $(directory)
+        displayName: Validate Terraform with mocked Azure providers
+        env:
+          RUN_TESTS: $(runTests)

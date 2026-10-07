@@ -46,6 +46,8 @@
                 <th>location</th>
                 <th>owner</th>
                 <th>cost-center</th>
+                  <th>network</th>
+                  <th>hub</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -71,6 +73,8 @@
                 <th>location</th>
                 <th>owner</th>
                 <th>cost-center</th>
+                  <th>network</th>
+                  <th>hub</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -108,6 +112,8 @@
                 <th>location</th>
                 <th>owner</th>
                 <th>cost-center</th>
+                  <th>network</th>
+                  <th>hub</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -160,6 +166,28 @@
               <input name="billingScope" />
             </label>
           </div>
+
+          <details class="details" open data-network-editor>
+            <summary>Project networking</summary>
+            <p class="formSectionNote">The shared hub is created once by the platform team. Choose whether this project needs its own connected spoke.</p>
+            <div class="grid">
+              <label class="span2">
+                Network choice
+                <select name="networkMode">
+                  <option value="none">No managed network</option>
+                  <option value="spoke">Create spoke and connect to shared hub</option>
+                </select>
+                <small data-network-availability></small>
+              </label>
+            </div>
+            <div class="grid" data-network-details hidden>
+              <label>Shared hub <select name="networkHubKey"></select></label>
+              <label>Spoke address space <input name="networkAddressSpace" placeholder="10.20.0.0/16" /></label>
+              <label>Workload subnet <input name="networkWorkloadSubnetPrefix" placeholder="10.20.1.0/24" /></label>
+              <label>Private endpoint subnet <input name="networkPrivateEndpointSubnetPrefix" placeholder="10.20.2.0/24" /></label>
+              <p class="formSectionNote span2">Use unique ranges for each project and environment. The pipeline checks overlap with the hub and other spokes. Changing to no managed network requires explicit pipeline approval for removal.</p>
+            </div>
+          </details>
 
           <details class="details" open>
             <summary>Subscription access groups</summary>
@@ -342,6 +370,28 @@
               <small>Leave empty to use the portal default.</small>
             </label>
           </div>
+
+          <details class="details" open data-network-editor>
+            <summary>Project networking</summary>
+            <p class="formSectionNote">The shared hub is created once by the platform team. Choose whether this project needs its own connected spoke.</p>
+            <div class="grid">
+              <label class="span2">
+                Network choice
+                <select name="networkMode">
+                  <option value="none">No managed network</option>
+                  <option value="spoke">Create spoke and connect to shared hub</option>
+                </select>
+                <small data-network-availability></small>
+              </label>
+            </div>
+            <div class="grid" data-network-details hidden>
+              <label>Shared hub <select name="networkHubKey"></select></label>
+              <label>Spoke address space <input name="networkAddressSpace" placeholder="10.20.0.0/16" /></label>
+              <label>Workload subnet <input name="networkWorkloadSubnetPrefix" placeholder="10.20.1.0/24" /></label>
+              <label>Private endpoint subnet <input name="networkPrivateEndpointSubnetPrefix" placeholder="10.20.2.0/24" /></label>
+              <p class="formSectionNote span2">Use unique ranges for each project and environment. The pipeline checks overlap with the hub and other spokes. Changing to no managed network requires explicit pipeline approval for removal.</p>
+            </div>
+          </details>
 
           <details class="details" data-admin-group-fields>
             <summary>Subscription access groups (admin only)</summary>

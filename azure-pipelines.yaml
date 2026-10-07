@@ -11,6 +11,9 @@ trigger:
       - "infrastructure/.terraform.lock.hcl"
       - "infrastructure/prod.azurerm.tfbackend"
       - "infrastructure/terraform_modules/subscription/**"
+      - "infrastructure/terraform_modules/subscription_networking/**"
+      - "infrastructure/networking/terraform_modules/address_plan/**"
+      - "scripts/check-network-plan.py"
       - "infrastructure/tfstate_monitoring/**"
       - "azure-pipelines.yaml"
       - "azure-pipeline-templates/stage-ci.yml"
@@ -23,6 +26,16 @@ trigger:
       - "infrastructure/utils/**"
 
 pr: none
+
+parameters:
+  - name: allowNetworkDeletion
+    displayName: Allow reviewed network deletion or replacement
+    type: boolean
+    default: false
+  - name: hubPipelineId
+    displayName: Shared hub bootstrap pipeline ID (0 uses secure-file configuration)
+    type: string
+    default: "0"
 
 variables:
   - name: runBranchName
@@ -42,6 +55,8 @@ stages:
           serviceConnection: ${{ variables.serviceConnectionProd }}
           environmentName: prod
           environmentDisplayName: prod
+          allowNetworkDeletion: ${{ parameters.allowNetworkDeletion }}
+          hubPipelineId: ${{ parameters.hubPipelineId }}
 
       - template: azure-pipeline-templates/stage-cd.yml
         parameters:

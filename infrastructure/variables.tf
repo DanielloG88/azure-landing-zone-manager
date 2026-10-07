@@ -3,6 +3,12 @@ variable "environment" {
   description = "Stage of the deployment and environment (e.g. dev, test, prod)."
 }
 
+variable "subscriptions_csv_path" {
+  type        = string
+  description = "Inventory path relative to this stack. Keep subscriptions.csv for deployments; tests use synthetic fixtures."
+  default     = "subscriptions.csv"
+}
+
 variable "tfstate_resource_group" {
   type        = string
   description = "The resource group for the terraform state."
