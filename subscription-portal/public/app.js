@@ -1450,7 +1450,7 @@ async function main() {
     const updateForm = $("#updateForm");
     const updateDryRunButton = $("#updateDryRunButton");
     const updateSubmitButton = $("#updateSubmitButton");
-    const updateCancelButton = $("#updateCancelButton");
+    const updateDismissButton = $("#updateDismissButton");
     const syncCsvButton = $("#syncCsvButton");
     let removeSubmitting = false;
     let updateSubmitting = false;
@@ -1621,7 +1621,7 @@ async function main() {
       });
     });
 
-    updateCancelButton?.addEventListener("click", () => {
+    updateDismissButton?.addEventListener("click", () => {
       pendingUpdateKey = null;
       if (updateCard) updateCard.hidden = true;
       setRemoveSelectionEnabled(true);
